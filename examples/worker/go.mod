@@ -1,7 +1,7 @@
-module lifecycle-worker
+module github.com/jingc1413/go-infra/examples/worker
 
 go 1.22
 
-require lifecycle v0.0.0
+require github.com/jingc1413/go-infra v0.0.0
 
-replace lifecycle => ../../
+replace github.com/jingc1413/go-infra => ../../

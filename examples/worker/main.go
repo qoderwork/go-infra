@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	lifecycle "lifecycle"
+	lifecycle "github.com/jingc1413/go-infra/lifecycle"
 )
 
 // ---------------------------------------------------------------------------
