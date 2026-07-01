@@ -59,8 +59,9 @@ type Manager struct {
 	stopped bool
 	tasks   []Task
 
-	timeout time.Duration
-	logger  *slog.Logger
+	startTimeout time.Duration
+	stopTimeout  time.Duration
+	logger       *slog.Logger
 
 	onStartHooks []func(ctx context.Context) error
 	onStopHooks  []func(ctx context.Context) error
@@ -73,12 +74,13 @@ type Manager struct {
 
 // New creates a Manager with the given options.
 //
-// Defaults: timeout 30s, logger slog.Default().
+// Defaults: startTimeout 30s, stopTimeout 30s, logger slog.Default().
 func New(opts ...Option) *Manager {
 	m := &Manager{
-		timeout: 30 * time.Second,
-		logger:  slog.Default(),
-		done:    make(chan struct{}),
+		startTimeout: 30 * time.Second,
+		stopTimeout:  30 * time.Second,
+		logger:       slog.Default(),
+		done:         make(chan struct{}),
 	}
 	for _, o := range opts {
 		o(m)
@@ -87,13 +89,18 @@ func New(opts ...Option) *Manager {
 }
 
 // Add registers a task. Must be called before Start.
-// Nil tasks are silently ignored.
+// Nil tasks are silently ignored. After Start or Stop, Add logs a warning
+// and returns without registering the task.
 func (m *Manager) Add(t Task) {
 	if t == nil {
 		return
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.running || m.stopped {
+		m.logger.Warn("lifecycle: Add called after Start/Stop, ignoring", "task", t.Name())
+		return
+	}
 	m.tasks = append(m.tasks, t)
 }
 
@@ -141,6 +148,10 @@ func (m *Manager) Start(ctx context.Context) error {
 	// Execute OnStart hooks
 	for _, fn := range hooks {
 		if err := fn(ctx); err != nil {
+			m.mu.Lock()
+			m.stopped = true
+			m.mu.Unlock()
+			m.closeDone()
 			return fmt.Errorf("lifecycle: on_start: %w", err)
 		}
 	}
@@ -207,9 +218,17 @@ func (m *Manager) Stop(ctx context.Context) error {
 
 		// Execute OnStop hooks
 		for _, fn := range hooks {
-			if err := fn(ctx); err != nil {
-				errs = append(errs, fmt.Errorf("lifecycle: on_stop: %w", err))
-			}
+			func(fn func(context.Context) error) {
+				defer func() {
+					if r := recover(); r != nil {
+						m.logger.Error("lifecycle: on_stop panicked", "panic", r)
+						errs = append(errs, fmt.Errorf("lifecycle: on_stop: panic: %v", r))
+					}
+				}()
+				if err := fn(ctx); err != nil {
+					errs = append(errs, fmt.Errorf("lifecycle: on_stop: %w", err))
+				}
+			}(fn)
 		}
 
 		m.mu.Lock()
@@ -224,21 +243,21 @@ func (m *Manager) Stop(ctx context.Context) error {
 // Wait blocks until ctx is done, then initiates shutdown.
 func (m *Manager) Wait(ctx context.Context) error {
 	<-ctx.Done()
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), m.timeout)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), m.stopTimeout)
 	defer cancel()
 	return m.Stop(shutdownCtx)
 }
 
 // Run starts all tasks, waits for an OS signal, then gracefully stops.
 // This is the recommended entry point for most applications.
-// Startup is bounded by the Manager's timeout.
+// Startup is bounded by startTimeout; shutdown by stopTimeout.
 func (m *Manager) Run() error {
-	startCtx, cancel := context.WithTimeout(context.Background(), m.timeout)
+	startCtx, cancel := context.WithTimeout(context.Background(), m.startTimeout)
 	defer cancel()
 	if err := m.Start(startCtx); err != nil {
 		return err
 	}
-	if err := m.WaitSignal(m.timeout); err != nil {
+	if err := m.WaitSignal(m.stopTimeout); err != nil {
 		return err
 	}
 	return nil
@@ -258,11 +277,18 @@ func (m *Manager) closeDone() {
 }
 
 func (m *Manager) rollback(started []Task) {
-	ctx, cancel := context.WithTimeout(context.Background(), m.timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), m.stopTimeout)
 	defer cancel()
 	for i := len(started) - 1; i >= 0; i-- {
-		if err := started[i].Stop(ctx); err != nil {
-			m.logger.Error("lifecycle: rollback failed", "task", started[i].Name(), "err", err)
-		}
+		func(t Task) {
+			defer func() {
+				if r := recover(); r != nil {
+					m.logger.Error("lifecycle: rollback panicked", "task", t.Name(), "panic", r)
+				}
+			}()
+			if err := t.Stop(ctx); err != nil {
+				m.logger.Error("lifecycle: rollback failed", "task", t.Name(), "err", err)
+			}
+		}(started[i])
 	}
 }

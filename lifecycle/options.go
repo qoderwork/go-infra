@@ -9,12 +9,31 @@ import (
 // Option configures a Manager.
 type Option func(*Manager)
 
-// WithTimeout sets the default shutdown timeout.
-// Default: 30 seconds.
+// WithTimeout sets both start and stop timeouts.
+// Default: 30 seconds each.
 func WithTimeout(d time.Duration) Option {
 	return func(m *Manager) {
 		if d > 0 {
-			m.timeout = d
+			m.startTimeout = d
+			m.stopTimeout = d
+		}
+	}
+}
+
+// WithStartTimeout sets the timeout for startup (used by Run).
+func WithStartTimeout(d time.Duration) Option {
+	return func(m *Manager) {
+		if d > 0 {
+			m.startTimeout = d
+		}
+	}
+}
+
+// WithStopTimeout sets the timeout for graceful shutdown.
+func WithStopTimeout(d time.Duration) Option {
+	return func(m *Manager) {
+		if d > 0 {
+			m.stopTimeout = d
 		}
 	}
 }

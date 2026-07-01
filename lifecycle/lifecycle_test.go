@@ -659,6 +659,157 @@ func TestRun_StartTimeout(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Fix: OnStart hook failure path
+// ---------------------------------------------------------------------------
+
+func TestOnStartHookFailure_ClosesDone(t *testing.T) {
+	m := New(WithLogger(nopLogger()))
+	m.OnStart(func(ctx context.Context) error { return errors.New("hook boom") })
+	m.Add(NewFuncTask("t", nil, nil))
+
+	_ = m.Start(context.Background())
+
+	select {
+	case <-m.Done():
+		// ok — Done should be closed after OnStart hook failure
+	case <-time.After(time.Second):
+		t.Fatal("Done channel not closed after OnStart hook failure")
+	}
+}
+
+func TestOnStartHookFailure_PreventsRestart(t *testing.T) {
+	m := New(WithLogger(nopLogger()))
+	m.OnStart(func(ctx context.Context) error { return errors.New("hook boom") })
+	m.Add(NewFuncTask("t", nil, nil))
+
+	_ = m.Start(context.Background())
+
+	err := m.Start(context.Background())
+	if err == nil {
+		t.Fatal("expected error restarting after OnStart hook failure")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fix: rollback panic protection
+// ---------------------------------------------------------------------------
+
+func TestRollbackPanicProtection(t *testing.T) {
+	var secondRolledBack atomic.Bool
+
+	m := New(WithLogger(nopLogger()))
+	m.Add(NewFuncTask("panicker",
+		func(ctx context.Context) error { return nil },
+		func(ctx context.Context) error { panic("rollback boom") },
+	))
+	m.Add(NewFuncTask("after-panicker",
+		func(ctx context.Context) error { return nil },
+		func(ctx context.Context) error { secondRolledBack.Store(true); return nil },
+	))
+	// Third task fails to trigger rollback
+	m.Add(NewFuncTask("fail",
+		func(ctx context.Context) error { return errors.New("trigger rollback") },
+		nil,
+	))
+
+	err := m.Start(context.Background())
+	if err == nil {
+		t.Fatal("expected start error")
+	}
+
+	// Second task should still have been rolled back despite first task panicking
+	if !secondRolledBack.Load() {
+		t.Fatal("task after panicking rollback was not rolled back")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fix: separate start/stop timeouts
+// ---------------------------------------------------------------------------
+
+func TestSeparateTimeouts(t *testing.T) {
+	m := New(
+		WithLogger(nopLogger()),
+		WithStartTimeout(50*time.Millisecond),
+		WithStopTimeout(2*time.Second),
+	)
+
+	if m.startTimeout != 50*time.Millisecond {
+		t.Fatalf("startTimeout = %v, want 50ms", m.startTimeout)
+	}
+	if m.stopTimeout != 2*time.Second {
+		t.Fatalf("stopTimeout = %v, want 2s", m.stopTimeout)
+	}
+
+	// Run() should use startTimeout — task hangs, start times out quickly
+	m.Add(NewFuncTask("hang-start", func(ctx context.Context) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}, nil))
+
+	err := m.Run()
+	if err == nil {
+		t.Fatal("expected start timeout from Run")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fix: OnStop hook panic protection
+// ---------------------------------------------------------------------------
+
+func TestOnStopHookPanicRecovered(t *testing.T) {
+	var secondHookCalled atomic.Bool
+
+	m := New(WithLogger(nopLogger()))
+	m.Add(NewFuncTask("t", nil, nil))
+	m.OnStop(func(ctx context.Context) error { panic("on_stop boom") })
+	m.OnStop(func(ctx context.Context) error { secondHookCalled.Store(true); return nil })
+
+	_ = m.Start(context.Background())
+	err := m.Stop(context.Background())
+
+	if err == nil {
+		t.Fatal("expected error from panicked OnStop hook")
+	}
+	if !strings.Contains(err.Error(), "panic") {
+		t.Fatalf("error should mention panic, got: %v", err)
+	}
+	if !secondHookCalled.Load() {
+		t.Fatal("second OnStop hook was not called after first panicked")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fix: Add after Start/Stop guard
+// ---------------------------------------------------------------------------
+
+func TestAddAfterStart_Ignored(t *testing.T) {
+	m := New(WithLogger(nopLogger()))
+	m.Add(NewFuncTask("first", nil, nil))
+	_ = m.Start(context.Background())
+
+	m.Add(NewFuncTask("late", nil, nil)) // should be ignored
+
+	if len(m.tasks) != 1 {
+		t.Fatalf("tasks = %d, want 1 (late add should be ignored)", len(m.tasks))
+	}
+	_ = m.Stop(context.Background())
+}
+
+func TestAddAfterStop_Ignored(t *testing.T) {
+	m := New(WithLogger(nopLogger()))
+	m.Add(NewFuncTask("first", nil, nil))
+	_ = m.Start(context.Background())
+	_ = m.Stop(context.Background())
+
+	m.Add(NewFuncTask("late", nil, nil)) // should be ignored
+
+	if len(m.tasks) != 1 {
+		t.Fatalf("tasks = %d, want 1 (late add should be ignored)", len(m.tasks))
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Benchmark
 // ---------------------------------------------------------------------------
 
