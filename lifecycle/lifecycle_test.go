@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -169,9 +170,11 @@ func TestOnStopError_Accumulated(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected accumulated error")
 	}
-	// Should contain both errors
-	if !errors.Is(err, errors.Unwrap(err)) {
-		// errors.Join wraps multiple; just verify it's non-nil and contains both
+	if !strings.Contains(err.Error(), "stop err") {
+		t.Fatalf("error should contain task stop error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "hook err") {
+		t.Fatalf("error should contain hook error, got: %v", err)
 	}
 }
 
@@ -532,7 +535,7 @@ func TestStartErrorContainsTaskName(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if got := err.Error(); !containsStr(got, "my-task") {
+	if got := err.Error(); !strings.Contains(got, "my-task") {
 		t.Fatalf("error should contain task name, got: %s", got)
 	}
 }
@@ -549,22 +552,110 @@ func TestStopErrorContainsTaskName(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if got := err.Error(); !containsStr(got, "my-task") {
+	if got := err.Error(); !strings.Contains(got, "my-task") {
 		t.Fatalf("error should contain task name, got: %s", got)
 	}
 }
 
-func containsStr(s, substr string) bool {
-	return len(s) >= len(substr) && searchStr(s, substr)
+// ---------------------------------------------------------------------------
+// Bug fix tests
+// ---------------------------------------------------------------------------
+
+func TestAddNil_Ignored(t *testing.T) {
+	m := New(WithLogger(nopLogger()))
+	m.Add(nil) // should not panic
+	m.Add(NewFuncTask("real", nil, nil))
+
+	ctx := context.Background()
+	if err := m.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Stop(ctx); err != nil {
+		t.Fatal(err)
+	}
 }
 
-func searchStr(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
+func TestStopPanicRecovery(t *testing.T) {
+	var secondStopped atomic.Bool
+
+	m := New(WithLogger(nopLogger()))
+	m.Add(NewFuncTask("panicker", nil, func(ctx context.Context) error {
+		panic("stop boom")
+	}))
+	m.Add(NewFuncTask("after-panicker", nil, func(ctx context.Context) error {
+		secondStopped.Store(true)
+		return nil
+	}))
+
+	_ = m.Start(context.Background())
+	err := m.Stop(context.Background())
+
+	// Should get an error about the panic
+	if err == nil {
+		t.Fatal("expected error from panicked stop")
 	}
-	return false
+	if !strings.Contains(err.Error(), "panic") {
+		t.Fatalf("error should mention panic, got: %v", err)
+	}
+	// Second task should still have been stopped
+	if !secondStopped.Load() {
+		t.Fatal("task after panicking task was not stopped")
+	}
+}
+
+func TestStartFailure_ClosesDone(t *testing.T) {
+	m := New(WithLogger(nopLogger()))
+	m.Add(NewFuncTask("fail", func(ctx context.Context) error {
+		return errors.New("boom")
+	}, nil))
+
+	_ = m.Start(context.Background())
+
+	select {
+	case <-m.Done():
+		// ok — Done should be closed after Start failure
+	case <-time.After(time.Second):
+		t.Fatal("Done channel not closed after Start failure")
+	}
+}
+
+func TestStartFailure_PreventsRestart(t *testing.T) {
+	m := New(WithLogger(nopLogger()))
+	m.Add(NewFuncTask("fail", func(ctx context.Context) error {
+		return errors.New("boom")
+	}, nil))
+
+	_ = m.Start(context.Background())
+
+	err := m.Start(context.Background())
+	if err == nil {
+		t.Fatal("expected error restarting after failed start")
+	}
+}
+
+func TestStopBeforeStart_ClosesDone(t *testing.T) {
+	m := New(WithLogger(nopLogger()))
+	_ = m.Stop(context.Background())
+
+	select {
+	case <-m.Done():
+		// ok
+	case <-time.After(time.Second):
+		t.Fatal("Done channel not closed after Stop-before-Start")
+	}
+}
+
+func TestRun_StartTimeout(t *testing.T) {
+	m := New(WithLogger(nopLogger()), WithTimeout(50*time.Millisecond))
+	m.Add(NewFuncTask("hang", func(ctx context.Context) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}, nil))
+
+	err := m.Run()
+	if err == nil {
+		t.Fatal("expected timeout error from Run")
+	}
 }
 
 // ---------------------------------------------------------------------------

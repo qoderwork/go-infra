@@ -65,9 +65,10 @@ type Manager struct {
 	onStartHooks []func(ctx context.Context) error
 	onStopHooks  []func(ctx context.Context) error
 
-	stopOnce sync.Once
-	stopErr  error
-	done     chan struct{}
+	stopOnce  sync.Once
+	closeOnce sync.Once
+	stopErr   error
+	done      chan struct{}
 }
 
 // New creates a Manager with the given options.
@@ -86,7 +87,11 @@ func New(opts ...Option) *Manager {
 }
 
 // Add registers a task. Must be called before Start.
+// Nil tasks are silently ignored.
 func (m *Manager) Add(t Task) {
+	if t == nil {
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.tasks = append(m.tasks, t)
@@ -145,6 +150,10 @@ func (m *Manager) Start(ctx context.Context) error {
 	for _, t := range tasks {
 		if err := t.Start(ctx); err != nil {
 			m.rollback(started)
+			m.mu.Lock()
+			m.stopped = true
+			m.mu.Unlock()
+			m.closeDone()
 			return fmt.Errorf("lifecycle: start %q: %w", t.Name(), err)
 		}
 		started = append(started, t)
@@ -162,12 +171,12 @@ func (m *Manager) Start(ctx context.Context) error {
 // Safe to call multiple times; only the first call has effect.
 func (m *Manager) Stop(ctx context.Context) error {
 	m.stopOnce.Do(func() {
-		defer close(m.done)
-
 		m.mu.Lock()
 		if !m.running {
+			m.stopped = true
 			m.stopErr = errors.New("lifecycle: not running")
 			m.mu.Unlock()
+			m.closeDone()
 			return
 		}
 		tasks := make([]Task, len(m.tasks))
@@ -178,12 +187,22 @@ func (m *Manager) Stop(ctx context.Context) error {
 		m.stopped = true
 		m.mu.Unlock()
 
-		// Stop in reverse order
+		defer m.closeDone()
+
+		// Stop in reverse order with panic protection
 		var errs []error
 		for i := len(tasks) - 1; i >= 0; i-- {
-			if err := tasks[i].Stop(ctx); err != nil {
-				errs = append(errs, fmt.Errorf("lifecycle: stop %q: %w", tasks[i].Name(), err))
-			}
+			func(t Task) {
+				defer func() {
+					if r := recover(); r != nil {
+						m.logger.Error("lifecycle: stop panicked", "task", t.Name(), "panic", r)
+						errs = append(errs, fmt.Errorf("lifecycle: stop %q: panic: %v", t.Name(), r))
+					}
+				}()
+				if err := t.Stop(ctx); err != nil {
+					errs = append(errs, fmt.Errorf("lifecycle: stop %q: %w", t.Name(), err))
+				}
+			}(tasks[i])
 		}
 
 		// Execute OnStop hooks
@@ -212,9 +231,11 @@ func (m *Manager) Wait(ctx context.Context) error {
 
 // Run starts all tasks, waits for an OS signal, then gracefully stops.
 // This is the recommended entry point for most applications.
+// Startup is bounded by the Manager's timeout.
 func (m *Manager) Run() error {
-	ctx := context.Background()
-	if err := m.Start(ctx); err != nil {
+	startCtx, cancel := context.WithTimeout(context.Background(), m.timeout)
+	defer cancel()
+	if err := m.Start(startCtx); err != nil {
 		return err
 	}
 	if err := m.WaitSignal(m.timeout); err != nil {
@@ -231,6 +252,10 @@ func (m *Manager) Done() <-chan struct{} {
 // ---------------------------------------------------------------------------
 // Internal
 // ---------------------------------------------------------------------------
+
+func (m *Manager) closeDone() {
+	m.closeOnce.Do(func() { close(m.done) })
+}
 
 func (m *Manager) rollback(started []Task) {
 	ctx, cancel := context.WithTimeout(context.Background(), m.timeout)
