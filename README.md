@@ -11,7 +11,7 @@ Go 基础设施工具集，用于构建生产级应用。
 ## 使用
 
 ```go
-import "github.com/jingc1413/go-infra/lifecycle"
+import "github.com/qoderwork/go-infra/lifecycle"
 
 func main() {
     mgr := lifecycle.New(lifecycle.WithTimeout(10 * time.Second))
