@@ -1,6 +1,4 @@
-// Package main demonstrates using the lifecycle manager for background
-// workers: a periodic data processor and a cache warmer, with different
-// priorities and graceful shutdown.
+// Package main demonstrates lifecycle with background workers.
 //
 // Run:
 //
@@ -25,19 +23,17 @@ import (
 
 type worker struct {
 	name     string
-	priority int
 	interval time.Duration
 	done     atomic.Int64
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
 }
 
-func newWorker(name string, priority int, interval time.Duration) *worker {
-	return &worker{name: name, priority: priority, interval: interval}
+func newWorker(name string, interval time.Duration) *worker {
+	return &worker{name: name, interval: interval}
 }
 
-func (w *worker) Name() string  { return w.name }
-func (w *worker) Priority() int { return w.priority }
+func (w *worker) Name() string { return w.name }
 
 func (w *worker) Start(ctx context.Context) error {
 	ctx, w.cancel = context.WithCancel(ctx)
@@ -50,8 +46,7 @@ func (w *worker) Start(ctx context.Context) error {
 		for {
 			select {
 			case <-ctx.Done():
-				log.Printf("[%s] context cancelled, exiting (processed %d items)",
-					w.name, w.done.Load())
+				log.Printf("[%s] exiting (processed %d items)", w.name, w.done.Load())
 				return
 			case <-ticker.C:
 				w.process()
@@ -62,11 +57,10 @@ func (w *worker) Start(ctx context.Context) error {
 }
 
 func (w *worker) Stop(ctx context.Context) error {
-	log.Printf("[%s] stopping... (processed %d items total)", w.name, w.done.Load())
+	log.Printf("[%s] stopping... (processed %d items)", w.name, w.done.Load())
 	if w.cancel != nil {
 		w.cancel()
 	}
-	// Wait for goroutine with context awareness
 	doneCh := make(chan struct{})
 	go func() {
 		w.wg.Wait()
@@ -83,7 +77,6 @@ func (w *worker) Stop(ctx context.Context) error {
 }
 
 func (w *worker) process() {
-	// Simulate work
 	time.Sleep(10 * time.Millisecond)
 	w.done.Add(1)
 }
@@ -95,26 +88,20 @@ func (w *worker) process() {
 func main() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 
-	mgr := lifecycle.NewManager(
-		lifecycle.WithShutdownTimeout(5 * time.Second),
-	)
+	mgr := lifecycle.New(lifecycle.WithTimeout(5 * time.Second))
 
-	// Register workers with different priorities.
-	// Higher priority = starts first, stops last.
-	mgr.AddTask(newWorker("CacheWarmer", 50, 500*time.Millisecond))
-	mgr.AddTask(newWorker("DataProcessor", 100, 200*time.Millisecond))
-	mgr.AddTask(newWorker("MetricsFlusher", 10, 1*time.Second))
+	// Registration order determines start/stop order.
+	// First added = starts first, stops last.
+	mgr.Add(newWorker("DataProcessor", 200*time.Millisecond))
+	mgr.Add(newWorker("CacheWarmer", 500*time.Millisecond))
+	mgr.Add(newWorker("MetricsFlusher", 1*time.Second))
 
-	// Hook: log startup summary
-	mgr.OnReady(func(ctx context.Context) error {
-		log.Println("All workers running. Press Ctrl+C to stop.")
+	mgr.OnStop(func(ctx context.Context) error {
+		log.Println("All workers stopped.")
 		return nil
 	})
 
-	// Run blocks until SIGINT/SIGTERM
 	if err := mgr.Run(); err != nil {
 		log.Fatalf("lifecycle error: %v", err)
 	}
-
-	log.Printf("shutdown reason: %s", mgr.Reason())
 }

@@ -10,24 +10,17 @@ import (
 	"time"
 )
 
-// WaitSignal blocks until one of the specified OS signals is received
-// (default: SIGINT, SIGTERM on Unix), then initiates graceful shutdown.
-//
-// On non-Windows platforms, the default signals are syscall.SIGINT and
-// syscall.SIGTERM. On Windows, only os.Interrupt is used as the default.
+// WaitSignal blocks until SIGINT or SIGTERM (or the specified signals),
+// then initiates graceful shutdown with the given timeout.
 func (m *Manager) WaitSignal(timeout time.Duration, sigs ...os.Signal) error {
 	if len(sigs) == 0 {
 		sigs = []os.Signal{syscall.SIGINT, syscall.SIGTERM}
 	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), sigs...)
 	defer stop()
-
 	<-ctx.Done()
-	m.logger.Printf("lifecycle: signal received, initiating shutdown")
-
+	m.logger.Info("lifecycle: signal received", "signal", ctx.Err())
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-
-	return m.ShutdownCtx(shutdownCtx, ReasonSignal)
+	return m.Stop(shutdownCtx)
 }

@@ -1,34 +1,27 @@
 package lifecycle
 
-import "time"
+import (
+	"context"
+	"log/slog"
+	"time"
+)
 
 // Option configures a Manager.
 type Option func(*Manager)
 
-// WithExecutor sets the task execution strategy.
-//
-//	mgr := lifecycle.NewManager(lifecycle.WithExecutor(lifecycle.ExecutorParallel))
-func WithExecutor(e ExecutorType) Option {
-	return func(m *Manager) { m.executorType = e }
-}
-
-// WithCustomExecutor injects a user-provided Executor implementation,
-// bypassing the built-in serial/parallel selection via WithExecutor.
-//
-// The Executor interface is exported; this option allows custom scheduling
-// strategies (e.g., rate-limited concurrency, dependency graphs).
-//
-//	mgr := lifecycle.NewManager(lifecycle.WithCustomExecutor(myExecutor))
-func WithCustomExecutor(e Executor) Option {
+// WithTimeout sets the default shutdown timeout.
+// Default: 30 seconds.
+func WithTimeout(d time.Duration) Option {
 	return func(m *Manager) {
-		if e != nil {
-			m.customExecutor = e
+		if d > 0 {
+			m.timeout = d
 		}
 	}
 }
 
-// WithLogger sets a custom logger. The default uses slog.Default().
-func WithLogger(l Logger) Option {
+// WithLogger sets a custom logger.
+// Default: slog.Default().
+func WithLogger(l *slog.Logger) Option {
 	return func(m *Manager) {
 		if l != nil {
 			m.logger = l
@@ -36,47 +29,63 @@ func WithLogger(l Logger) Option {
 	}
 }
 
-// WithMetricsHook registers a callback for lifecycle metric events.
-func WithMetricsHook(h MetricsHook) Option {
-	return func(m *Manager) {
-		if h != nil {
-			m.metricsHook = h
-		}
-	}
-}
-
-// WithShutdownTimeout sets the default timeout used by Run() for graceful
-// shutdown. Individual ShutdownCtx calls may specify their own timeout.
-//
-// Default: 30 seconds.
-func WithShutdownTimeout(d time.Duration) Option {
-	return func(m *Manager) {
-		if d > 0 {
-			m.shutdownTimeout = d
-		}
-	}
-}
-
-// WithPanicRecovery enables or disables panic recovery during task execution.
-// When enabled (the default), a panicking task is recovered and converted
-// to an error. When disabled, the panic propagates normally.
-//
-// Default: true.
-func WithPanicRecovery(enabled bool) Option {
-	return func(m *Manager) { m.panicRecovery = enabled }
-}
-
 // ---------------------------------------------------------------------------
-// Executor type enum (convenience for WithExecutor)
+// FuncTask — convenience adapter
 // ---------------------------------------------------------------------------
 
-// ExecutorType selects the built-in executor strategy.
-type ExecutorType int
+// FuncTaskOption configures a FuncTask.
+type FuncTaskOption func(*FuncTask)
 
-const (
-	// ExecutorSerial processes tasks one at a time (default).
-	ExecutorSerial ExecutorType = iota
+// FuncTask implements Task using plain functions.
+//
+//	task := lifecycle.NewFuncTask("redis",
+//	    func(ctx context.Context) error { return redis.Connect() },
+//	    func(ctx context.Context) error { return redis.Close() },
+//	)
+type FuncTask struct {
+	name    string
+	startFn func(context.Context) error
+	stopFn  func(context.Context) error
+	timeout time.Duration
+}
 
-	// ExecutorParallel processes all tasks concurrently.
-	ExecutorParallel
-)
+// NewFuncTask creates a Task from start/stop functions.
+// Either function may be nil (becomes a no-op).
+func NewFuncTask(name string, start, stop func(context.Context) error, opts ...FuncTaskOption) *FuncTask {
+	t := &FuncTask{name: name, startFn: start, stopFn: stop}
+	for _, o := range opts {
+		o(t)
+	}
+	return t
+}
+
+// WithTaskTimeout sets a per-operation timeout.
+func WithTaskTimeout(d time.Duration) FuncTaskOption {
+	return func(t *FuncTask) { t.timeout = d }
+}
+
+func (f *FuncTask) Name() string { return f.name }
+
+func (f *FuncTask) Start(ctx context.Context) error {
+	if f.startFn == nil {
+		return nil
+	}
+	if f.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, f.timeout)
+		defer cancel()
+	}
+	return f.startFn(ctx)
+}
+
+func (f *FuncTask) Stop(ctx context.Context) error {
+	if f.stopFn == nil {
+		return nil
+	}
+	if f.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, f.timeout)
+		defer cancel()
+	}
+	return f.stopFn(ctx)
+}
