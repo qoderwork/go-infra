@@ -64,3 +64,37 @@ func TestFingerprintNoPanic(t *testing.T) {
 		t.Fatalf("fingerprint len = %d want 36 (UUID format)", len(fp))
 	}
 }
+
+// TestNormalizeSystemUUID mirrors the reference shell helper:
+//
+//	dmidecode -s system-uuid | sed 's/-//g' | awk '{print toupper($0)}'
+func TestNormalizeSystemUUID(t *testing.T) {
+	cases := map[string]string{
+		"4c4c4544-004e-4d10-8034-b4a44c4c4634": "4C4C4544004E4D108034B4A44C4C4634",
+		"4C4C4544-004E-4D10-8034-B4A44C4C4634": "4C4C4544004E4D108034B4A44C4C4634",
+		"  a1b2c3d4-1111-2222-3333-444455556666  ": "A1B2C3D4111122223333444455556666",
+		"A1B2C3D4111122223333444455556666":       "A1B2C3D4111122223333444455556666",
+	}
+	for in, want := range cases {
+		if got := NormalizeSystemUUID(in); got != want {
+			t.Errorf("NormalizeSystemUUID(%q)=%q want %q", in, got, want)
+		}
+	}
+}
+
+// TestFingerprintFromSystemUUID locks in that the token the issuer embeds via
+// `sign -system-uuid` matches what the target's Fingerprint() produces at
+// verify time, regardless of how the UUID was formatted on input.
+func TestFingerprintFromSystemUUID(t *testing.T) {
+	a := FingerprintFromSystemUUID("4c4c4544-004e-4d10-8034-b4a44c4c4634")
+	b := FingerprintFromSystemUUID("4C4C4544004E4D108034B4A44C4C4634")
+	if a != b {
+		t.Fatalf("FingerprintFromSystemUUID not stable across formatting: %q != %q", a, b)
+	}
+	if len(a) != 36 {
+		t.Fatalf("FingerprintFromSystemUUID len = %d want 36 (UUID v5)", len(a))
+	}
+	if a == FingerprintFromSystemUUID("11111111-1111-1111-1111-111111111111") {
+		t.Fatalf("FingerprintFromSystemUUID collides for a different uuid")
+	}
+}

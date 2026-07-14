@@ -5,7 +5,7 @@
 //	genkey      generate an Ed25519 key pair (private.pem + public.pem)
 //	sign        sign a license template JSON into a .lic envelope
 //	verify      verify a .lic envelope against a public key
-//	fingerprint print the current machine fingerprint
+//	fingerprint print the host system-uuid machine code (dmidecode -s system-uuid)
 //
 // The private key stays with you (the issuer). Ship only the public key
 // embedded in your application; it can verify but never forge licenses.
@@ -47,7 +47,7 @@ func usage() {
 
 Usage:
   license-tool genkey      [-priv private.pem] [-pub public.pem]
-  license-tool sign        -key private.pem -in template.json [-out license.lic] [-version 1]
+  license-tool sign        -key private.pem -in template.json [-out license.lic] [-version 1] [-system-uuid ABCD1234...]
   license-tool verify      -pub public.pem -in license.lic
   license-tool fingerprint
 `)
@@ -91,6 +91,7 @@ func cmdSign(args []string) {
 	in := fs.String("in", "", "license template JSON path")
 	out := fs.String("out", "license.lic", "output .lic path")
 	version := fs.Int("version", licensing.CurrentVersion, "license version")
+	sysUUID := fs.String("system-uuid", "", "bind license to this host system-uuid (dmidecode -s system-uuid, upper case, no dashes); overrides template")
 	_ = fs.Parse(args)
 	if *key == "" || *in == "" {
 		fatal(fmt.Errorf("sign requires -key and -in"))
@@ -114,6 +115,11 @@ func cmdSign(args []string) {
 	}
 	if lic.IssuedAt.IsZero() {
 		lic.IssuedAt = time.Now().UTC()
+	}
+	if *sysUUID != "" {
+		lic.Machine = &licensing.MachineBinding{
+			Fingerprint: machine.FingerprintFromSystemUUID(*sysUUID),
+		}
 	}
 
 	env, err := licensing.NewSigner(priv, *version).Sign(&lic)

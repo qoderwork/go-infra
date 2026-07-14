@@ -2,15 +2,22 @@
 // bind a license to a physical (or virtual) machine.
 //
 // The fingerprint is derived from a hardware identifier chosen from a
-// platform-specific fallback chain:
+// platform-specific fallback chain. The most preferred source is the DMI
+// system UUID (dmidecode -s system-uuid), which is the most stable host
+// identifier (survives OS reinstall and container restart):
 //
-//	Linux   : /sys/class/dmi/id/board_serial -> /etc/machine-id
+//	Linux   : dmidecode system-uuid -> /sys/class/dmi/id/board_serial -> /etc/machine-id
 //	macOS   : system_profiler serial number
 //	Windows : Win32_BaseBoard serial        -> Cryptography\MachineGuid
 //
 // Fail-closed policy: if no trusted hardware identifier can be read,
 // Fingerprint returns an error. It deliberately does NOT fall back to
 // mutable identifiers (hostname, MAC address) to prevent weak bindings.
+//
+// For node-locking a license to a physical host, use SystemUUID instead.
+// It returns the DMI system UUID (dmidecode -s system-uuid, upper case, no
+// dashes) — the canonical "machine code" shared between the issuer and the
+// verifying application. See SystemUUID for the container mount requirements.
 package machine
 
 import (
@@ -96,6 +103,16 @@ func extractRegex(re *regexp.Regexp, s string) string {
 func rawFingerprint() (string, error) {
 	switch runtime.GOOS {
 	case "linux":
+		// Preferred: the DMI system UUID (dmidecode -s system-uuid). It is a
+		// host hardware value read from /dev/mem, so it survives OS reinstalls
+		// and container restarts — the most stable identifier available. In a
+		// container, /dev/mem and /sbin/dmidecode must be bind-mounted from the
+		// host for this to resolve to the host's UUID.
+		if out, err := exec.Command("dmidecode", "-s", "system-uuid").Output(); err == nil {
+			if t := systemUUIDToken(string(out)); t != "" {
+				return t, nil
+			}
+		}
 		if s := readFileTrim("/sys/class/dmi/id/board_serial"); s != "" && !isPlaceholder(s) {
 			return "board:" + s, nil
 		}
@@ -125,6 +142,11 @@ func rawFingerprint() (string, error) {
 // Fingerprint returns a normalized, stable machine identifier in UUID v5
 // format. It returns an error if no trusted hardware identifier can be read
 // (fail-closed). It never panics.
+//
+// The underlying hardware identifier is chosen from a fallback chain whose
+// most preferred member is the DMI system UUID (dmidecode -s system-uuid),
+// which is the most stable host identifier (survives OS reinstall and
+// container restart). See rawFingerprint for the full chain.
 func Fingerprint() (string, error) {
 	raw, err := rawFingerprint()
 	if err != nil {
@@ -134,4 +156,59 @@ func Fingerprint() (string, error) {
 		return "", fmt.Errorf("machine: hardware identifier is a placeholder")
 	}
 	return normalize(raw), nil
+}
+
+// systemUUIDToken turns a raw dmidecode -s system-uuid value into the
+// prefixed, normalized token used inside rawFingerprint. Empty/placeholder
+// input yields "" so callers can fall through to the next source.
+func systemUUIDToken(raw string) string {
+	n := NormalizeSystemUUID(raw)
+	if n == "" || isPlaceholder(n) {
+		return ""
+	}
+	return "sysuuid:" + n
+}
+
+// FingerprintFromSystemUUID returns the same binding token Fingerprint would
+// produce for the given host system UUID. Use it when an issuer needs to pin a
+// license to a target host whose system UUID is known (e.g. from inventory)
+// without running on that host: the resulting token matches what the target's
+// Fingerprint() computes at verification time.
+func FingerprintFromSystemUUID(raw string) string {
+	return normalize(systemUUIDToken(raw))
+}
+
+// SystemUUID returns the host's DMI system UUID (the value of
+// `dmidecode -s system-uuid`), normalized to upper case with the dashes
+// removed. This is the canonical "machine code" used to node-lock a license
+// to a physical host, matching the reference shell helper:
+//
+//	dmidecode -s system-uuid | sed 's/-//g' | awk '{print toupper($0)}'
+//
+// It shells out to dmidecode, which reads the DMI/SMBIOS table from /dev/mem.
+// In container deployments /dev/mem and /sbin/dmidecode must be bind-mounted
+// from the host (see the project's java-compose.yml) so the value matches the
+// one used when the license was issued.
+//
+// Fail-closed: if dmidecode is unavailable, or it returns an empty/placeholder
+// identifier, an error is returned. It deliberately does NOT fall back to
+// another identifier (doing so would silently bind the license to the wrong
+// machine).
+func SystemUUID() (string, error) {
+	out, err := exec.Command("dmidecode", "-s", "system-uuid").Output()
+	if err != nil {
+		return "", fmt.Errorf("machine: dmidecode system-uuid: %w", err)
+	}
+	raw := strings.TrimSpace(string(out))
+	if raw == "" || isPlaceholder(raw) {
+		return "", fmt.Errorf("machine: no usable system-uuid from dmidecode")
+	}
+	return NormalizeSystemUUID(raw), nil
+}
+
+// NormalizeSystemUUID normalizes a raw DMI system UUID the same way the
+// reference shell helper does: trim surrounding whitespace, drop dashes, and
+// upper-case the result.
+func NormalizeSystemUUID(raw string) string {
+	return strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(raw), "-", ""))
 }
