@@ -1,17 +1,27 @@
 // Example: verifying a license in a consuming application.
 //
-// Build the license and keys first:
+// Build keys and license:
 //
 //	go run ./cmd/license-tool genkey -priv private.pem -pub public.pem
 //	# write a template.json (see README), then:
 //	go run ./cmd/license-tool sign -key private.pem -in template.json -out license.lic
 //
-// Then embed public.pem in your binary (go:embed) and verify at startup:
+// For encrypted licenses:
 //
-//	go run ./examples/license -pub public.pem -in license.lic
+//	go run ./cmd/license-tool sign -key private.pem -aes aes.key -in template.json -out license.enc
+//
+// Then embed public.pem (and optionally aes.key) in your binary via go:embed:
+//
+//	//go:embed public.pem
+//	var embeddedPubKey []byte
+//
+// Verify at startup:
+//
+//	go run ./examples/license -in license.lic
 package main
 
 import (
+	_ "embed"
 	"flag"
 	"fmt"
 	"os"
@@ -20,19 +30,30 @@ import (
 	"github.com/qoderwork/go-infra/licensing/machine"
 )
 
+//go:embed testdata/public.pem
+var embeddedPubKey []byte
+
 func main() {
-	pubPath := flag.String("pub", "", "embedded public key PEM")
-	licPath := flag.String("in", "", "license .lic path")
+	licPath := flag.String("in", "", "license .lic or .enc path")
+	aesKeyPath := flag.String("aes", "", "AES key file (for encrypted licenses)")
+	pubPath := flag.String("pub", "", "public key PEM file (overrides embedded key)")
 	flag.Parse()
 
-	pubPEM, err := os.ReadFile(*pubPath)
-	if err != nil {
-		fatal(err)
+	// Use embedded key by default, or load from file if specified.
+	pubPEM := embeddedPubKey
+	if *pubPath != "" {
+		var err error
+		pubPEM, err = os.ReadFile(*pubPath)
+		if err != nil {
+			fatal(err)
+		}
 	}
+
 	pub, err := licensing.DecodePublicKeyPEM(pubPEM)
 	if err != nil {
 		fatal(err)
 	}
+
 	data, err := os.ReadFile(*licPath)
 	if err != nil {
 		fatal(err)
@@ -42,7 +63,19 @@ func main() {
 	verifier := licensing.NewVerifier(pub, licensing.CurrentVersion).
 		WithFingerprint(machine.Fingerprint)
 
-	lic, err := verifier.Verify(data)
+	var lic *licensing.License
+
+	if *aesKeyPath != "" {
+		// Encrypted license: load AES key, then decrypt + verify.
+		aesKey, err := os.ReadFile(*aesKeyPath)
+		if err != nil {
+			fatal(fmt.Errorf("read AES key: %w", err))
+		}
+		lic, err = verifier.VerifyEncrypted(data, aesKey)
+	} else {
+		// Plain signed license.
+		lic, err = verifier.Verify(data)
+	}
 	if err != nil {
 		fmt.Printf("license invalid: %v\n", err)
 		os.Exit(1)

@@ -1,15 +1,16 @@
 // Package machine computes a stable, normalized machine fingerprint used to
 // bind a license to a physical (or virtual) machine.
 //
-// The fingerprint is a sha256 hex of a hardware identifier chosen from a
-// fallback chain:
+// The fingerprint is derived from a hardware identifier chosen from a
+// platform-specific fallback chain:
 //
 //	Linux   : /sys/class/dmi/id/board_serial -> /etc/machine-id
 //	macOS   : system_profiler serial number
 //	Windows : Win32_BaseBoard serial        -> Cryptography\MachineGuid
 //
-// If every source is missing or a known placeholder (common in VMs), it falls
-// back to a hash of the hostname so the call never panics.
+// Fail-closed policy: if no trusted hardware identifier can be read,
+// Fingerprint returns an error. It deliberately does NOT fall back to
+// mutable identifiers (hostname, MAC address) to prevent weak bindings.
 package machine
 
 import (
@@ -27,7 +28,8 @@ import (
 // than a real hardware id.
 var placeholderWords = []string{
 	"none", "null", "nil", "unknown", "n/a", "na", "default",
-	"to be filled", "system serial", "0x0", "o.e.m",
+	"to be filled", "system serial", "not specified",
+	"0x0", "o.e.m", "base board",
 }
 
 func isPlaceholder(s string) bool {
@@ -53,9 +55,18 @@ func isPlaceholder(s string) bool {
 	return false
 }
 
+// normalize hashes the raw identifier and formats it as a UUID v5 string
+// (xxxxxxxx-xxxx-5xxx-80xx-xxxxxxxxxxxx). This makes the fingerprint
+// human-friendly and consistent with RFC 4122 naming conventions while
+// remaining a one-way hash — the original hardware serial cannot be recovered.
 func normalize(raw string) string {
 	h := sha256.Sum256([]byte(strings.TrimSpace(raw)))
-	return hex.EncodeToString(h[:])
+	b := h[:16]
+	b[6] = (b[6] & 0x0f) | 0x50 // version 5
+	b[8] = (b[8] & 0x3f) | 0x80 // variant 10
+	hex := hex.EncodeToString(b)
+	return fmt.Sprintf("%s-%s-%s-%s-%s",
+		hex[0:8], hex[8:12], hex[12:16], hex[16:20], hex[20:32])
 }
 
 func readFileTrim(path string) string {
@@ -108,19 +119,19 @@ func rawFingerprint() (string, error) {
 			return "guid:" + s, nil
 		}
 	}
-	return "", fmt.Errorf("machine: no stable identifier found")
+	return "", fmt.Errorf("machine: no stable hardware identifier found")
 }
 
-// Fingerprint returns a normalized, stable machine identifier, or an error if
-// even the hostname fallback is unavailable. It never panics.
+// Fingerprint returns a normalized, stable machine identifier in UUID v5
+// format. It returns an error if no trusted hardware identifier can be read
+// (fail-closed). It never panics.
 func Fingerprint() (string, error) {
 	raw, err := rawFingerprint()
-	if err != nil || isPlaceholder(raw) {
-		host, herr := os.Hostname()
-		if herr != nil {
-			return "", fmt.Errorf("machine: fingerprint unavailable: %w", err)
-		}
-		raw = "host:" + host
+	if err != nil {
+		return "", err
+	}
+	if isPlaceholder(raw) {
+		return "", fmt.Errorf("machine: hardware identifier is a placeholder")
 	}
 	return normalize(raw), nil
 }

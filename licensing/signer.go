@@ -38,3 +38,14 @@ func (s *Signer) Sign(lic *License) (*Envelope, error) {
 	}
 	return env, nil
 }
+
+// SignEncrypted signs the license and then encrypts the resulting envelope
+// with AES-256-GCM. The aesKey must be exactly 32 bytes. This produces an
+// opaque license file whose contents are hidden from casual inspection.
+func (s *Signer) SignEncrypted(lic *License, aesKey []byte) (*EncryptedEnvelope, error) {
+	env, err := s.Sign(lic)
+	if err != nil {
+		return nil, err
+	}
+	return EncryptEnvelope(env, aesKey)
+}

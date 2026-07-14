@@ -241,6 +241,151 @@ func TestEnvelopeSaveLoad(t *testing.T) {
 	}
 }
 
+func TestEncryptDecryptRoundtrip(t *testing.T) {
+	pub, priv := newTestPair(t)
+	aesKey, err := GenerateAESKey()
+	if err != nil {
+		t.Fatalf("GenerateAESKey: %v", err)
+	}
+
+	lic := &License{
+		Product:  "acme",
+		Subject:  "alice",
+		Features: []string{"pro", "encrypted"},
+		Capacity: map[string]int64{"seats": 10},
+		Expiry:   time.Now().Add(24 * time.Hour),
+	}
+
+	// Sign then encrypt.
+	env, err := NewSigner(priv, CurrentVersion).SignEncrypted(lic, aesKey)
+	if err != nil {
+		t.Fatalf("SignEncrypted: %v", err)
+	}
+
+	// Serialize and parse back.
+	data, err := json.Marshal(env)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	// Decrypt then verify.
+	got, err := NewVerifier(pub, CurrentVersion).VerifyEncrypted(data, aesKey)
+	if err != nil {
+		t.Fatalf("VerifyEncrypted: %v", err)
+	}
+	if got.Subject != "alice" || !got.HasFeature("encrypted") || got.CapacityOf("seats") != 10 {
+		t.Fatalf("decrypted license fields mismatch: %+v", got)
+	}
+}
+
+func TestEncryptedTamperDetection(t *testing.T) {
+	_, priv := newTestPair(t)
+	aesKey, _ := GenerateAESKey()
+
+	lic := &License{Product: "acme", Expiry: time.Now().Add(time.Hour)}
+	env, err := NewSigner(priv, CurrentVersion).SignEncrypted(lic, aesKey)
+	if err != nil {
+		t.Fatalf("SignEncrypted: %v", err)
+	}
+
+	// Tamper with the ciphertext.
+	env.Ciphertext = base64.StdEncoding.EncodeToString([]byte("tampered data here!"))
+	data, _ := json.Marshal(env)
+
+	wrongKey, _ := GenerateAESKey()
+	_, err = NewVerifier(nil, CurrentVersion).VerifyEncrypted(data, wrongKey)
+	if err == nil {
+		t.Fatal("expected error for tampered encrypted envelope")
+	}
+}
+
+func TestEncryptedWrongKey(t *testing.T) {
+	pub, priv := newTestPair(t)
+	aesKey, _ := GenerateAESKey()
+	wrongKey, _ := GenerateAESKey()
+
+	lic := &License{Product: "acme", Expiry: time.Now().Add(time.Hour)}
+	env, err := NewSigner(priv, CurrentVersion).SignEncrypted(lic, aesKey)
+	if err != nil {
+		t.Fatalf("SignEncrypted: %v", err)
+	}
+	data, _ := json.Marshal(env)
+
+	// Decrypting with wrong key should fail.
+	_, err = NewVerifier(pub, CurrentVersion).VerifyEncrypted(data, wrongKey)
+	if err == nil {
+		t.Fatal("expected error for wrong AES key")
+	}
+}
+
+func TestEncryptedSaveLoad(t *testing.T) {
+	pub, priv := newTestPair(t)
+	aesKey, _ := GenerateAESKey()
+
+	lic := &License{Product: "acme", Subject: "bob", Expiry: time.Now().Add(time.Hour)}
+	env, err := NewSigner(priv, CurrentVersion).SignEncrypted(lic, aesKey)
+	if err != nil {
+		t.Fatalf("SignEncrypted: %v", err)
+	}
+
+	path := filepath.Join(t.TempDir(), "lic.enc")
+	if err := SaveEncryptedEnvelope(path, env); err != nil {
+		t.Fatalf("SaveEncryptedEnvelope: %v", err)
+	}
+	loaded, err := LoadEncryptedEnvelope(path)
+	if err != nil {
+		t.Fatalf("LoadEncryptedEnvelope: %v", err)
+	}
+	data, _ := json.Marshal(loaded)
+	got, err := NewVerifier(pub, CurrentVersion).VerifyEncrypted(data, aesKey)
+	if err != nil {
+		t.Fatalf("verify loaded encrypted: %v", err)
+	}
+	if got.Subject != "bob" {
+		t.Fatalf("subject mismatch: got %q", got.Subject)
+	}
+}
+
+func TestGenerateAESKey(t *testing.T) {
+	key, err := GenerateAESKey()
+	if err != nil {
+		t.Fatalf("GenerateAESKey: %v", err)
+	}
+	if len(key) != AESKeySize {
+		t.Fatalf("key length = %d, want %d", len(key), AESKeySize)
+	}
+	// Two generated keys should be different.
+	key2, _ := GenerateAESKey()
+	if string(key) == string(key2) {
+		t.Fatal("two generated keys should not be identical")
+	}
+}
+
+func TestEncryptedConcurrentVerify(t *testing.T) {
+	pub, priv := newTestPair(t)
+	aesKey, _ := GenerateAESKey()
+
+	lic := &License{Product: "acme", Expiry: time.Now().Add(time.Hour)}
+	env, err := NewSigner(priv, CurrentVersion).SignEncrypted(lic, aesKey)
+	if err != nil {
+		t.Fatalf("SignEncrypted: %v", err)
+	}
+	data, _ := json.Marshal(env)
+
+	v := NewVerifier(pub, CurrentVersion)
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := v.VerifyEncrypted(data, aesKey); err != nil {
+				t.Errorf("concurrent encrypted verify failed: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+}
+
 func contains(s, sub string) bool { return indexOf(s, sub) >= 0 }
 
 func indexOf(s, sub string) int {
