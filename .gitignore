@@ -25,6 +25,7 @@ go.work
 *.swp
 *.swo
 *~
+.codegraph/
 
 # Environment
 .env
