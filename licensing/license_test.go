@@ -165,7 +165,7 @@ func TestUnknownVersion(t *testing.T) {
 	pub, priv := newTestPair(t)
 	lic := &License{Product: "acme"}
 	env := mustSign(t, priv, lic) // version 1
-	v := NewVerifier(pub, 2)     // verifier only trusts version 2
+	v := NewVerifier(pub, 2)      // verifier only trusts version 2
 	if _, err := v.Verify(envBytes(t, env)); !errors.Is(err, ErrUnknownVersion) {
 		t.Fatalf("want ErrUnknownVersion got %v", err)
 	}
@@ -188,7 +188,7 @@ func TestClockBackwards(t *testing.T) {
 func TestCanonicalStable(t *testing.T) {
 	lic := &License{
 		Product:  "acme",
-		Features:  []string{"b", "a"},
+		Features: []string{"b", "a"},
 		Capacity: map[string]int64{"z": 1, "a": 2},
 	}
 	b1, _ := lic.CanonicalBytes()

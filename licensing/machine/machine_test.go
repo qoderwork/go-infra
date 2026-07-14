@@ -4,14 +4,14 @@ import "testing"
 
 func TestIsPlaceholder(t *testing.T) {
 	cases := map[string]bool{
-		"":                        true,
-		"none":                    true,
-		"Default string":          true,
+		"":                       true,
+		"none":                   true,
+		"Default string":         true,
 		"To Be Filled By O.E.M.": true,
-		"00000000":                true,
-		"System Serial Number":    true,
-		"ABC123XYZ":               false,
-		"real-board-9f":           false,
+		"00000000":               true,
+		"System Serial Number":   true,
+		"ABC123XYZ":              false,
+		"real-board-9f":          false,
 	}
 	for in, want := range cases {
 		if got := isPlaceholder(in); got != want {

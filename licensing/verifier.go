@@ -12,7 +12,7 @@ import (
 type Verifier struct {
 	keys     map[int]ed25519.PublicKey // envelope version -> trusted public key
 	fpFunc   func() (string, error)    // machine fingerprint source (optional)
-	clock    func() time.Time           // time source (overridable for tests)
+	clock    func() time.Time          // time source (overridable for tests)
 	minClock int64                     // persisted max-seen unix seconds (anti rollback)
 }
 

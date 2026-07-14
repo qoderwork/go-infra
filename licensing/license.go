@@ -11,17 +11,17 @@ import (
 // Fields use time.Time so they round-trip cleanly through JSON (RFC3339)
 // and can be formatted for display. Zero time values are omitted on the wire.
 type License struct {
-	Version   int               `json:"version"`
-	ID        string            `json:"id,omitempty"`
-	Product   string            `json:"product,omitempty"`
-	Subject   string            `json:"subject,omitempty"`
-	Issuer    string            `json:"issuer,omitempty"`
-	Features  []string          `json:"features,omitempty"`
+	Version   int              `json:"version"`
+	ID        string           `json:"id,omitempty"`
+	Product   string           `json:"product,omitempty"`
+	Subject   string           `json:"subject,omitempty"`
+	Issuer    string           `json:"issuer,omitempty"`
+	Features  []string         `json:"features,omitempty"`
 	Capacity  map[string]int64 `json:"capacity,omitempty"`
-	NotBefore time.Time         `json:"not_before,omitempty"`
-	Expiry    time.Time         `json:"expiry,omitempty"`
-	Machine   *MachineBinding   `json:"machine,omitempty"`
-	IssuedAt  time.Time         `json:"issued_at,omitempty"`
+	NotBefore time.Time        `json:"not_before,omitempty"`
+	Expiry    time.Time        `json:"expiry,omitempty"`
+	Machine   *MachineBinding  `json:"machine,omitempty"`
+	IssuedAt  time.Time        `json:"issued_at,omitempty"`
 }
 
 // MachineBinding optionally pins a license to one or more machines.
