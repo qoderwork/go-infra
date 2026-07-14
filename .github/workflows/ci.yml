@@ -9,15 +9,14 @@ jobs:
   test:
     name: test & build
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
-          cache: true # 显式启用 setup-go 的全局缓存功能
-
-      # 删除了多余的 go vet
+          go-version: "1.24"
+          cache: true
 
       - name: Test
         run: go test ./lifecycle/... -count=1 -race
@@ -27,20 +26,20 @@ jobs:
           go build -C examples/http_server -v ./...
           go build -C examples/worker -v ./...
 
+
   lint:
     name: golangci-lint
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
-          cache: true # 统一使用 setup-go 进行依赖缓存
+          go-version: "1.24"
+          cache: true
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
-          # 关键优化：跳过 action 自身的缓存，避免与 setup-go 的缓存冲突
-          skip-cache: true
+          version: v2.12.2
