@@ -14,7 +14,7 @@ import (
 	"net/http"
 	"time"
 
-	lifecycle "github.com/jingc1413/go-infra/lifecycle"
+	lifecycle "github.com/qoderwork/go-infra/lifecycle"
 )
 
 // ---------------------------------------------------------------------------

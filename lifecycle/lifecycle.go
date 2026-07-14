@@ -54,10 +54,11 @@ type Task interface {
 // Tasks are started in registration order and stopped in reverse order.
 // All methods are safe for concurrent use.
 type Manager struct {
-	mu      sync.Mutex
-	running bool
-	stopped bool
-	tasks   []Task
+	mu       sync.Mutex
+	running  bool
+	stopped  bool
+	starting bool
+	tasks    []Task
 
 	startTimeout time.Duration
 	stopTimeout  time.Duration
@@ -139,6 +140,11 @@ func (m *Manager) Start(ctx context.Context) error {
 		m.mu.Unlock()
 		return errors.New("lifecycle: cannot restart after stop")
 	}
+	if m.starting {
+		m.mu.Unlock()
+		return errors.New("lifecycle: already starting")
+	}
+	m.starting = true
 	tasks := make([]Task, len(m.tasks))
 	copy(tasks, m.tasks)
 	hooks := make([]func(context.Context) error, len(m.onStartHooks))
@@ -149,6 +155,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	for _, fn := range hooks {
 		if err := fn(ctx); err != nil {
 			m.mu.Lock()
+			m.starting = false
 			m.stopped = true
 			m.mu.Unlock()
 			m.closeDone()
@@ -162,6 +169,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		if err := t.Start(ctx); err != nil {
 			m.rollback(started)
 			m.mu.Lock()
+			m.starting = false
 			m.stopped = true
 			m.mu.Unlock()
 			m.closeDone()
@@ -172,6 +180,7 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	m.mu.Lock()
 	m.running = true
+	m.starting = false
 	m.mu.Unlock()
 
 	m.logger.Info("lifecycle: started", "tasks", len(tasks))

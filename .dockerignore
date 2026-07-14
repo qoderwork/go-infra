@@ -1,6 +1,5 @@
 .git
 .gitignore
-*.md
 bin/
 .env
 *.exe
@@ -8,4 +7,3 @@ bin/
 .vscode/
 .idea/
 *.log
-node_modules/

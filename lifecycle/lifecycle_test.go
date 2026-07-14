@@ -371,6 +371,43 @@ func TestConcurrentStop(t *testing.T) {
 	wg.Wait()
 }
 
+// TestConcurrentStart verifies that calling Start from multiple goroutines
+// concurrently does not start any task more than once (TOCTOU guard on m.starting).
+func TestConcurrentStart(t *testing.T) {
+	m := New(WithLogger(nopLogger()))
+	var mu sync.Mutex
+	starts := map[string]int{}
+	for _, name := range []string{"A", "B", "C"} {
+		n := name
+		m.Add(NewFuncTask(n,
+			func(ctx context.Context) error {
+				mu.Lock()
+				starts[n]++
+				mu.Unlock()
+				return nil
+			},
+			nil,
+		))
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = m.Start(context.Background())
+		}()
+	}
+	wg.Wait()
+
+	for _, name := range []string{"A", "B", "C"} {
+		if starts[name] != 1 {
+			t.Fatalf("task %s started %d times, want 1 (concurrent Start must not double-start)", name, starts[name])
+		}
+	}
+	_ = m.Stop(context.Background())
+}
+
 func TestConcurrentAddBeforeStart(t *testing.T) {
 	m := New(WithLogger(nopLogger()))
 
