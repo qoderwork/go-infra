@@ -29,9 +29,15 @@ type MachineBinding struct {
 	// Fingerprint is the value produced by the machine package (a sha256 hex
 	// of a stable hardware id). It is compared, case-sensitively, against the
 	// fingerprint the verifying application computes at runtime.
-	Fingerprint string   `json:"fp"`
-	Loose       bool     `json:"loose,omitempty"`
-	Aliases     []string `json:"aliases,omitempty"`
+	Fingerprint string `json:"fp"`
+	// Loose controls behavior when the fingerprint source is missing or fails:
+	//   - false (strict, default): verification fails if the fingerprint
+	//     source is nil, returns an error, or no candidate matches.
+	//   - true (loose): verification passes when the fingerprint source is
+	//     nil or returns an error (best-effort), but still fails when a
+	//     fingerprint is successfully read and matches no candidate.
+	Loose   bool     `json:"loose,omitempty"`
+	Aliases []string `json:"aliases,omitempty"`
 }
 
 // HasFeature reports whether the license grants a named feature.

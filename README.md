@@ -48,7 +48,7 @@ Manager 提供两种"等停机信号"的入口，按需选择：
 - **签发 / 验签分离**：`license-tool` 持有**私钥**签发授权；你的程序只**内置公钥**验签，无法伪造。
 - **数据模型**：`License` 含 `ID / Product / Subject / Features[] / Capacity / NotBefore / Expiry / Machine / Version`。`Features` 是功能开关列表，`Capacity` 是数量上限（`map[string]int64`），二者构成 Feature + Capacity 两层授权。
 - **确定性签名**：签名字节 = `License` 结构体的 JSON 编码。Go 的 `json` 按字段声明顺序输出、并对 map 的 key 排序，因此签发端与验签端产生完全一致字节。
-- **机器绑定**：`Machine` 声明允许的机器指纹列表；`strict` 要求精确匹配（取不到指纹则失败），`loose` 在取不到指纹时放行。指纹由 `license/machine` 计算（主板序列号 → `/etc/machine-id` → hostname 回退链，sha256 归一化并拒占位符）。
+- **机器绑定**：`Machine` 声明允许的机器指纹列表；`strict`（默认）要求精确匹配，指纹源缺失或读取失败即拒绝；`loose` 在指纹源缺失或读取失败时放行（best-effort），但成功读取后仍需匹配。指纹由 `licensing/machine` 计算（Linux: dmidecode system-uuid → 主板序列号 → `/etc/machine-id`；macOS: system_profiler；Windows: PowerShell），sha256 归一化为 UUID v5 格式，**fail-closed 拒绝 hostname/MAC 等可变标识符与占位符**。
 - **密钥轮换**：`Version` 字段选择验签用的公钥；`Verifier.WithKey(v, pub)` 注册多版本公钥，换密钥时旧授权仍有效。
 
 ### 快速开始
@@ -64,9 +64,9 @@ go run ./cmd/license-tool sign -key private.pem -in template.json -out license.l
 验签（在程序里，只内置公钥）：
 
 ```go
-pub, _ := license.DecodePublicKeyPEM(pubPEM) // pubPEM 用 go:embed 内置
+pub, _ := licensing.DecodePublicKeyPEM(pubPEM) // pubPEM 用 go:embed 内置
 data, _ := os.ReadFile("license.lic")
-v, _ := license.NewVerifier(pub, license.CurrentVersion)
+v, _ := licensing.NewVerifier(pub, licensing.CurrentVersion)
 lic, err := v.WithFingerprint(machine.Fingerprint).Verify(data)
 if err != nil { /* 授权无效：err 说明原因 */ }
 _ = lic.HasFeature("advanced")

@@ -510,6 +510,70 @@ func TestStrictModeAliases(t *testing.T) {
 	}
 }
 
+func TestWithKeyValidation(t *testing.T) {
+	pub, _ := newTestPair(t)
+	v, _ := NewVerifier(pub, CurrentVersion)
+	// WithKey with invalid key length should be ignored (no panic, no registration).
+	v.WithKey(2, nil)
+	v.WithKey(2, ed25519.PublicKey(make([]byte, 10)))
+	// Verify against version 2 should still fail with ErrUnknownVersion
+	// because the invalid key was not registered.
+	_, priv2, _ := GenerateKey()
+	signer2, _ := NewSigner(priv2, 2)
+	lic := &License{Product: "acme"}
+	env, err := signer2.Sign(lic)
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	if _, err := v.Verify(envBytes(t, env)); !errors.Is(err, ErrUnknownVersion) {
+		t.Fatalf("want ErrUnknownVersion for unregistered version 2, got %v", err)
+	}
+}
+
+func TestLooseModeFingerprintErrorPasses(t *testing.T) {
+	pub, priv := newTestPair(t)
+	lic := &License{
+		Product: "acme",
+		Machine: &MachineBinding{Fingerprint: "fp-main", Loose: true},
+	}
+	env := mustSign(t, priv, lic)
+	// fpFunc returns error: loose mode should pass (best-effort).
+	fpErr := func() (string, error) { return "", errors.New("hardware unreadable") }
+	v, _ := NewVerifier(pub, CurrentVersion)
+	if _, err := v.WithFingerprint(fpErr).Verify(envBytes(t, env)); err != nil {
+		t.Fatalf("loose mode should pass on fingerprint error: %v", err)
+	}
+}
+
+func TestStrictModeFingerprintErrorFails(t *testing.T) {
+	pub, priv := newTestPair(t)
+	lic := &License{
+		Product: "acme",
+		Machine: &MachineBinding{Fingerprint: "fp-main"}, // strict
+	}
+	env := mustSign(t, priv, lic)
+	// fpFunc returns error: strict mode should fail.
+	fpErr := func() (string, error) { return "", errors.New("hardware unreadable") }
+	v, _ := NewVerifier(pub, CurrentVersion)
+	if _, err := v.WithFingerprint(fpErr).Verify(envBytes(t, env)); !errors.Is(err, ErrMachineMismatch) {
+		t.Fatalf("strict mode should fail on fingerprint error: want ErrMachineMismatch, got %v", err)
+	}
+}
+
+func TestLooseModeNoFingerprintSourcePasses(t *testing.T) {
+	pub, priv := newTestPair(t)
+	lic := &License{
+		Product: "acme",
+		Machine: &MachineBinding{Fingerprint: "fp-main", Loose: true},
+	}
+	env := mustSign(t, priv, lic)
+	// No WithFingerprint: loose mode should pass.
+	v, _ := NewVerifier(pub, CurrentVersion)
+	if _, err := v.Verify(envBytes(t, env)); err != nil {
+		t.Fatalf("loose mode without fingerprint source should pass: %v", err)
+	}
+}
+
 func TestFingerprintFromSystemUUIDEmpty(t *testing.T) {
 	_, err := machine.FingerprintFromSystemUUID("")
 	if err == nil {

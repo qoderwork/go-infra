@@ -39,9 +39,16 @@ func NewVerifier(pub ed25519.PublicKey, version int) (*Verifier, error) {
 // This supports key rotation: old licenses keep verifying against the key
 // version they were signed with, while new licenses use a fresh key.
 //
+// The public key must be a valid Ed25519 public key (32 bytes); otherwise it
+// is silently ignored (a shorter/longer key would cause ed25519.Verify to
+// panic at verify time, so it is rejected up front).
+//
 // Must be called before any concurrent use of Verify. See the Verifier struct
 // doc for the full concurrency contract.
 func (v *Verifier) WithKey(version int, pub ed25519.PublicKey) *Verifier {
+	if len(pub) != ed25519.PublicKeySize {
+		return v
+	}
 	v.keys[version] = pub
 	return v
 }
@@ -134,10 +141,18 @@ func (v *Verifier) VerifyEnvelope(env *Envelope) (*License, error) {
 
 func (v *Verifier) checkMachine(b *MachineBinding) error {
 	if v.fpFunc == nil {
+		// Loose mode without a fingerprint source: pass (best-effort).
+		if b.Loose {
+			return nil
+		}
 		return fmt.Errorf("%w: verifier has no fingerprint source", ErrMachineMismatch)
 	}
 	fp, err := v.fpFunc()
 	if err != nil {
+		// Loose mode: tolerate fingerprint read errors (best-effort pass).
+		if b.Loose {
+			return nil
+		}
 		return fmt.Errorf("%w: cannot read fingerprint: %v", ErrMachineMismatch, err)
 	}
 	if b.Loose {
