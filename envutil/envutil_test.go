@@ -128,3 +128,96 @@ func TestSetUnset(t *testing.T) {
 		t.Fatal("Unset did not unset the value")
 	}
 }
+
+func TestMustInt(t *testing.T) {
+	os.Setenv("TEST_MUST_INT", "123")
+	defer os.Unsetenv("TEST_MUST_INT")
+
+	if v := MustInt("TEST_MUST_INT"); v != 123 {
+		t.Fatalf("MustInt = %d, want 123", v)
+	}
+}
+
+func TestMustIntNotSet(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("MustInt with not set should panic")
+		}
+	}()
+	MustInt("NOT_SET_THAT_DEFINITELY_DOES_NOT_EXIST_12345")
+}
+
+func TestMustIntInvalid(t *testing.T) {
+	os.Setenv("TEST_MUST_INT_BAD", "notanumber")
+	defer os.Unsetenv("TEST_MUST_INT_BAD")
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("MustInt with invalid value should panic")
+		}
+	}()
+	MustInt("TEST_MUST_INT_BAD")
+}
+
+func TestMustBool(t *testing.T) {
+	os.Setenv("TEST_MUST_BOOL", "true")
+	defer os.Unsetenv("TEST_MUST_BOOL")
+
+	if !MustBool("TEST_MUST_BOOL") {
+		t.Fatal("MustBool = false, want true")
+	}
+}
+
+func TestMustBoolNotSet(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("MustBool with not set should panic")
+		}
+	}()
+	MustBool("NOT_SET_THAT_DEFINITELY_DOES_NOT_EXIST_12345")
+}
+
+func TestMustBoolInvalid(t *testing.T) {
+	os.Setenv("TEST_MUST_BOOL_BAD", "notabool")
+	defer os.Unsetenv("TEST_MUST_BOOL_BAD")
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("MustBool with invalid value should panic")
+		}
+	}()
+	MustBool("TEST_MUST_BOOL_BAD")
+}
+
+func TestFloat64Invalid(t *testing.T) {
+	os.Setenv("TEST_BAD_FLOAT", "not a float")
+	defer os.Unsetenv("TEST_BAD_FLOAT")
+
+	if v := Float64("TEST_BAD_FLOAT", 2.5); v != 2.5 {
+		t.Fatalf("Float64 bad value = %f, want 2.5", v)
+	}
+}
+
+func TestInt64Invalid(t *testing.T) {
+	os.Setenv("TEST_BAD_INT64", "notanumber")
+	defer os.Unsetenv("TEST_BAD_INT64")
+
+	if v := Int64("TEST_BAD_INT64", 42); v != 42 {
+		t.Fatalf("Int64 bad value = %d, want 42", v)
+	}
+}
+
+func TestInt64NotSet(t *testing.T) {
+	if v := Int64("NOT_SET", 99); v != 99 {
+		t.Fatalf("Int64 not set = %d, want 99", v)
+	}
+}
+
+func TestBoolInvalid(t *testing.T) {
+	os.Setenv("TEST_BAD_BOOL", "notabool")
+	defer os.Unsetenv("TEST_BAD_BOOL")
+
+	if !Bool("TEST_BAD_BOOL", true) {
+		t.Fatal("Bool with bad value should return default true")
+	}
+}
