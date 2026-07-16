@@ -10,6 +10,8 @@ Go 基础设施工具集，用于构建生产级应用。
 | [licensing](./licensing) | 离线软件授权：Ed25519 签名、机器绑定、Feature/Capacity 两层授权、密钥轮换 |
 | [cache](./cache) | LRU 缓存：支持容量限制、驱逐回调、线程安全包装 |
 | [buffer/ring](./buffer/ring) | 环形缓冲区：实现 `io.Reader`/`io.Writer`，支持自动扩容、ReadFrom/WriteTo |
+| [buffer/ringpool](./buffer/ringpool) | 环形缓冲对象池：带自适应校准，减少 GC 压力 |
+| [buffer/elastic](./buffer/elastic) | 弹性环形缓冲区：懒加载池化缓冲，空时自动归还 |
 | [queue](./queue) | 无锁队列：基于 CAS 的高性能队列，支持 MPSC/MPMC 场景 |
 | [bytepool](./bytepool) | 字节切片池：32 级分级池，减少 GC 压力 |
 | [mathutil](./mathutil) | 数学工具：2 的幂运算（Ceil/Floor/Closest/IsPowerOfTwo） |
