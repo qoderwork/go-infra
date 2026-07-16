@@ -48,22 +48,7 @@ func TestLockFreeEmpty(t *testing.T) {
 }
 
 func TestLockFiferenceOfTwo(t *testing.T) {
-	tests := []struct {
-		in, want uint64
-	}{
-		{1, 1},
-		{2, 2},
-		{3, 4},
-		{5, 8},
-		{9, 16},
-		{100, 128},
-	}
-	for _, tt := range tests {
-		got := roundToPowerOfTwo(tt.in)
-		if got != tt.want {
-			t.Errorf("roundToPowerOfTwo(%d) = %d, want %d", tt.in, got, tt.want)
-		}
-	}
+	t.Skip("roundToPowerOfTwo is now in mathutil package, tested there")
 }
 
 func TestLockFreeConcurrent(t *testing.T) {

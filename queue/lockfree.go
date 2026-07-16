@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"sync/atomic"
 	"time"
+
+	"github.com/qoderwork/go-infra/mathutil"
 )
 
 type casSlot struct {
@@ -33,7 +35,7 @@ type LockFree struct {
 // Capacity is rounded up to the nearest power of two.
 // sleepTime specifies how long to wait when queue is full/empty before retrying.
 func NewLockFree(capacity uint64, sleepTime time.Duration) *LockFree {
-	capacity = roundToPowerOfTwo(capacity)
+	capacity = uint64(mathutil.CeilToPowerOfTwo(int(capacity)))
 	q := &LockFree{
 		capacity:  capacity,
 		capMod:    capacity - 1,
@@ -217,15 +219,3 @@ func (q *LockFree) GetAll() []interface{} {
 	return result
 }
 
-// roundToPowerOfTwo rounds v up to the nearest power of two.
-func roundToPowerOfTwo(v uint64) uint64 {
-	v--
-	v |= v >> 1
-	v |= v >> 2
-	v |= v >> 4
-	v |= v >> 8
-	v |= v >> 16
-	v |= v >> 32
-	v++
-	return v
-}
