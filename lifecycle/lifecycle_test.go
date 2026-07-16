@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 	"sync"
@@ -17,12 +18,8 @@ import (
 // ---------------------------------------------------------------------------
 
 func nopLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(discard{}, nil))
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
-
-type discard struct{}
-
-func (discard) Write(p []byte) (int, error) { return len(p), nil }
 
 func assertOrder(t *testing.T, want, got []string) {
 	t.Helper()

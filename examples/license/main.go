@@ -18,6 +18,7 @@
 // Verify at startup:
 //
 //	go run ./examples/license -in license.lic
+//	go run ./examples/license -in license.enc -aes aes.key
 package main
 
 import (
@@ -60,8 +61,11 @@ func main() {
 	}
 
 	// Bind verification to this machine.
-	verifier := licensing.NewVerifier(pub, licensing.CurrentVersion).
-		WithFingerprint(machine.Fingerprint)
+	verifier, err := licensing.NewVerifier(pub, licensing.CurrentVersion)
+	if err != nil {
+		fatal(err)
+	}
+	verifier.WithFingerprint(machine.Fingerprint)
 
 	var lic *licensing.License
 

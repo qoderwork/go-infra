@@ -86,15 +86,36 @@ func TestNormalizeSystemUUID(t *testing.T) {
 // `sign -system-uuid` matches what the target's Fingerprint() produces at
 // verify time, regardless of how the UUID was formatted on input.
 func TestFingerprintFromSystemUUID(t *testing.T) {
-	a := FingerprintFromSystemUUID("4c4c4544-004e-4d10-8034-b4a44c4c4634")
-	b := FingerprintFromSystemUUID("4C4C4544004E4D108034B4A44C4C4634")
+	a, err := FingerprintFromSystemUUID("4c4c4544-004e-4d10-8034-b4a44c4c4634")
+	if err != nil {
+		t.Fatalf("FingerprintFromSystemUUID: %v", err)
+	}
+	b, err := FingerprintFromSystemUUID("4C4C4544004E4D108034B4A44C4C4634")
+	if err != nil {
+		t.Fatalf("FingerprintFromSystemUUID: %v", err)
+	}
 	if a != b {
 		t.Fatalf("FingerprintFromSystemUUID not stable across formatting: %q != %q", a, b)
 	}
 	if len(a) != 36 {
 		t.Fatalf("FingerprintFromSystemUUID len = %d want 36 (UUID v5)", len(a))
 	}
-	if a == FingerprintFromSystemUUID("11111111-1111-1111-1111-111111111111") {
+	c, err := FingerprintFromSystemUUID("5B9A2D3E-4F5A-6B7C-8D9E-0F1A2B3C4D5E")
+	if err != nil {
+		t.Fatalf("FingerprintFromSystemUUID: %v", err)
+	}
+	if a == c {
 		t.Fatalf("FingerprintFromSystemUUID collides for a different uuid")
+	}
+}
+
+func TestFingerprintFromSystemUUIDEmpty(t *testing.T) {
+	_, err := FingerprintFromSystemUUID("")
+	if err == nil {
+		t.Fatal("expected error for empty system UUID")
+	}
+	_, err = FingerprintFromSystemUUID("00000000-0000-0000-0000-000000000000")
+	if err == nil {
+		t.Fatal("expected error for placeholder system UUID")
 	}
 }

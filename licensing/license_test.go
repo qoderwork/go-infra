@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/qoderwork/go-infra/licensing/machine"
 )
 
 func newTestPair(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
@@ -22,7 +25,11 @@ func newTestPair(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
 
 func mustSign(t *testing.T, priv ed25519.PrivateKey, lic *License) *Envelope {
 	t.Helper()
-	env, err := NewSigner(priv, CurrentVersion).Sign(lic)
+	signer, err := NewSigner(priv, CurrentVersion)
+	if err != nil {
+		t.Fatalf("NewSigner: %v", err)
+	}
+	env, err := signer.Sign(lic)
 	if err != nil {
 		t.Fatalf("Sign: %v", err)
 	}
@@ -77,7 +84,11 @@ func TestSignAndVerify(t *testing.T) {
 		IssuedAt:  now,
 	}
 	env := mustSign(t, priv, lic)
-	got, err := NewVerifier(pub, CurrentVersion).Verify(envBytes(t, env))
+	v, err := NewVerifier(pub, CurrentVersion)
+	if err != nil {
+		t.Fatalf("NewVerifier: %v", err)
+	}
+	got, err := v.Verify(envBytes(t, env))
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -99,7 +110,8 @@ func TestTamperDetection(t *testing.T) {
 	// must fail with ErrInvalidSignature.
 	m["license"] = json.RawMessage(`"` + base64.StdEncoding.EncodeToString([]byte(`{"product":"evil"}`)) + `"`)
 	tampered, _ := json.Marshal(m)
-	if _, err := NewVerifier(pub, CurrentVersion).Verify(tampered); !errors.Is(err, ErrInvalidSignature) {
+	v, _ := NewVerifier(pub, CurrentVersion)
+	if _, err := v.Verify(tampered); !errors.Is(err, ErrInvalidSignature) {
 		t.Fatalf("want ErrInvalidSignature got %v", err)
 	}
 }
@@ -108,7 +120,8 @@ func TestExpired(t *testing.T) {
 	pub, priv := newTestPair(t)
 	lic := &License{Product: "acme", Expiry: time.Now().Add(-time.Hour)}
 	env := mustSign(t, priv, lic)
-	if _, err := NewVerifier(pub, CurrentVersion).Verify(envBytes(t, env)); !errors.Is(err, ErrExpired) {
+	v, _ := NewVerifier(pub, CurrentVersion)
+	if _, err := v.Verify(envBytes(t, env)); !errors.Is(err, ErrExpired) {
 		t.Fatalf("want ErrExpired got %v", err)
 	}
 }
@@ -117,7 +130,8 @@ func TestNotYetValid(t *testing.T) {
 	pub, priv := newTestPair(t)
 	lic := &License{Product: "acme", NotBefore: time.Now().Add(time.Hour)}
 	env := mustSign(t, priv, lic)
-	if _, err := NewVerifier(pub, CurrentVersion).Verify(envBytes(t, env)); !errors.Is(err, ErrNotYetValid) {
+	v, _ := NewVerifier(pub, CurrentVersion)
+	if _, err := v.Verify(envBytes(t, env)); !errors.Is(err, ErrNotYetValid) {
 		t.Fatalf("want ErrNotYetValid got %v", err)
 	}
 }
@@ -128,10 +142,12 @@ func TestMachineBindingStrict(t *testing.T) {
 	env := mustSign(t, priv, lic)
 	fpGood := func() (string, error) { return "fp-good", nil }
 	fpBad := func() (string, error) { return "fp-bad", nil }
-	if _, err := NewVerifier(pub, CurrentVersion).WithFingerprint(fpGood).Verify(envBytes(t, env)); err != nil {
+	v1, _ := NewVerifier(pub, CurrentVersion)
+	if _, err := v1.WithFingerprint(fpGood).Verify(envBytes(t, env)); err != nil {
 		t.Fatalf("strict match should pass: %v", err)
 	}
-	if _, err := NewVerifier(pub, CurrentVersion).WithFingerprint(fpBad).Verify(envBytes(t, env)); !errors.Is(err, ErrMachineMismatch) {
+	v2, _ := NewVerifier(pub, CurrentVersion)
+	if _, err := v2.WithFingerprint(fpBad).Verify(envBytes(t, env)); !errors.Is(err, ErrMachineMismatch) {
 		t.Fatalf("want ErrMachineMismatch got %v", err)
 	}
 }
@@ -142,10 +158,12 @@ func TestMachineBindingLoose(t *testing.T) {
 	env := mustSign(t, priv, lic)
 	fpLaptop := func() (string, error) { return "fp-laptop", nil }
 	fpUnknown := func() (string, error) { return "fp-unknown", nil }
-	if _, err := NewVerifier(pub, CurrentVersion).WithFingerprint(fpLaptop).Verify(envBytes(t, env)); err != nil {
+	v1, _ := NewVerifier(pub, CurrentVersion)
+	if _, err := v1.WithFingerprint(fpLaptop).Verify(envBytes(t, env)); err != nil {
 		t.Fatalf("loose alias should pass: %v", err)
 	}
-	if _, err := NewVerifier(pub, CurrentVersion).WithFingerprint(fpUnknown).Verify(envBytes(t, env)); !errors.Is(err, ErrMachineMismatch) {
+	v2, _ := NewVerifier(pub, CurrentVersion)
+	if _, err := v2.WithFingerprint(fpUnknown).Verify(envBytes(t, env)); !errors.Is(err, ErrMachineMismatch) {
 		t.Fatalf("want ErrMachineMismatch got %v", err)
 	}
 }
@@ -154,7 +172,8 @@ func TestMachineBindingUnbound(t *testing.T) {
 	pub, priv := newTestPair(t)
 	lic := &License{Product: "acme"}
 	env := mustSign(t, priv, lic)
-	if _, err := NewVerifier(pub, CurrentVersion).
+	v, _ := NewVerifier(pub, CurrentVersion)
+	if _, err := v.
 		WithFingerprint(func() (string, error) { return "whatever", nil }).
 		Verify(envBytes(t, env)); err != nil {
 		t.Fatalf("unbound license should verify: %v", err)
@@ -165,7 +184,7 @@ func TestUnknownVersion(t *testing.T) {
 	pub, priv := newTestPair(t)
 	lic := &License{Product: "acme"}
 	env := mustSign(t, priv, lic) // version 1
-	v := NewVerifier(pub, 2)      // verifier only trusts version 2
+	v, _ := NewVerifier(pub, 2)  // verifier only trusts version 2
 	if _, err := v.Verify(envBytes(t, env)); !errors.Is(err, ErrUnknownVersion) {
 		t.Fatalf("want ErrUnknownVersion got %v", err)
 	}
@@ -177,8 +196,8 @@ func TestClockBackwards(t *testing.T) {
 	env := mustSign(t, priv, lic)
 	now := time.Now()
 	fixed := now.Add(-time.Hour)
-	v := NewVerifier(pub, CurrentVersion).
-		WithClock(func() time.Time { return fixed }).
+	v, _ := NewVerifier(pub, CurrentVersion)
+	v.WithClock(func() time.Time { return fixed }).
 		WithMinClock(now.Unix())
 	if _, err := v.Verify(envBytes(t, env)); !errors.Is(err, ErrClockBackwards) {
 		t.Fatalf("want ErrClockBackwards got %v", err)
@@ -197,10 +216,10 @@ func TestCanonicalStable(t *testing.T) {
 		t.Fatal("canonical bytes not stable")
 	}
 	s := string(b1)
-	if !contains(s, `"a":2`) || !contains(s, `"z":1`) {
+	if !strings.Contains(s, `"a":2`) || !strings.Contains(s, `"z":1`) {
 		t.Fatalf("unexpected canonical form: %s", s)
 	}
-	if indexOf(s, `"a":2`) > indexOf(s, `"z":1`) {
+	if strings.Index(s, `"a":2`) > strings.Index(s, `"z":1`) {
 		t.Fatalf("map keys not sorted: %s", s)
 	}
 }
@@ -210,7 +229,7 @@ func TestConcurrentVerify(t *testing.T) {
 	lic := &License{Product: "acme", Expiry: time.Now().Add(time.Hour)}
 	env := mustSign(t, priv, lic)
 	data := envBytes(t, env)
-	v := NewVerifier(pub, CurrentVersion)
+	v, _ := NewVerifier(pub, CurrentVersion)
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
@@ -236,7 +255,8 @@ func TestEnvelopeSaveLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadEnvelope: %v", err)
 	}
-	if _, err := NewVerifier(pub, CurrentVersion).VerifyEnvelope(loaded); err != nil {
+	v, _ := NewVerifier(pub, CurrentVersion)
+	if _, err := v.VerifyEnvelope(loaded); err != nil {
 		t.Fatalf("verify loaded envelope: %v", err)
 	}
 }
@@ -257,7 +277,11 @@ func TestEncryptDecryptRoundtrip(t *testing.T) {
 	}
 
 	// Sign then encrypt.
-	env, err := NewSigner(priv, CurrentVersion).SignEncrypted(lic, aesKey)
+	signer, err := NewSigner(priv, CurrentVersion)
+	if err != nil {
+		t.Fatalf("NewSigner: %v", err)
+	}
+	env, err := signer.SignEncrypted(lic, aesKey)
 	if err != nil {
 		t.Fatalf("SignEncrypted: %v", err)
 	}
@@ -269,7 +293,8 @@ func TestEncryptDecryptRoundtrip(t *testing.T) {
 	}
 
 	// Decrypt then verify.
-	got, err := NewVerifier(pub, CurrentVersion).VerifyEncrypted(data, aesKey)
+	v, _ := NewVerifier(pub, CurrentVersion)
+	got, err := v.VerifyEncrypted(data, aesKey)
 	if err != nil {
 		t.Fatalf("VerifyEncrypted: %v", err)
 	}
@@ -279,11 +304,12 @@ func TestEncryptDecryptRoundtrip(t *testing.T) {
 }
 
 func TestEncryptedTamperDetection(t *testing.T) {
-	_, priv := newTestPair(t)
+	pub, priv := newTestPair(t)
 	aesKey, _ := GenerateAESKey()
 
 	lic := &License{Product: "acme", Expiry: time.Now().Add(time.Hour)}
-	env, err := NewSigner(priv, CurrentVersion).SignEncrypted(lic, aesKey)
+	signer, _ := NewSigner(priv, CurrentVersion)
+	env, err := signer.SignEncrypted(lic, aesKey)
 	if err != nil {
 		t.Fatalf("SignEncrypted: %v", err)
 	}
@@ -293,7 +319,8 @@ func TestEncryptedTamperDetection(t *testing.T) {
 	data, _ := json.Marshal(env)
 
 	wrongKey, _ := GenerateAESKey()
-	_, err = NewVerifier(nil, CurrentVersion).VerifyEncrypted(data, wrongKey)
+	v, _ := NewVerifier(pub, CurrentVersion)
+	_, err = v.VerifyEncrypted(data, wrongKey)
 	if err == nil {
 		t.Fatal("expected error for tampered encrypted envelope")
 	}
@@ -305,14 +332,16 @@ func TestEncryptedWrongKey(t *testing.T) {
 	wrongKey, _ := GenerateAESKey()
 
 	lic := &License{Product: "acme", Expiry: time.Now().Add(time.Hour)}
-	env, err := NewSigner(priv, CurrentVersion).SignEncrypted(lic, aesKey)
+	signer, _ := NewSigner(priv, CurrentVersion)
+	env, err := signer.SignEncrypted(lic, aesKey)
 	if err != nil {
 		t.Fatalf("SignEncrypted: %v", err)
 	}
 	data, _ := json.Marshal(env)
 
 	// Decrypting with wrong key should fail.
-	_, err = NewVerifier(pub, CurrentVersion).VerifyEncrypted(data, wrongKey)
+	v, _ := NewVerifier(pub, CurrentVersion)
+	_, err = v.VerifyEncrypted(data, wrongKey)
 	if err == nil {
 		t.Fatal("expected error for wrong AES key")
 	}
@@ -323,7 +352,8 @@ func TestEncryptedSaveLoad(t *testing.T) {
 	aesKey, _ := GenerateAESKey()
 
 	lic := &License{Product: "acme", Subject: "bob", Expiry: time.Now().Add(time.Hour)}
-	env, err := NewSigner(priv, CurrentVersion).SignEncrypted(lic, aesKey)
+	signer, _ := NewSigner(priv, CurrentVersion)
+	env, err := signer.SignEncrypted(lic, aesKey)
 	if err != nil {
 		t.Fatalf("SignEncrypted: %v", err)
 	}
@@ -337,7 +367,8 @@ func TestEncryptedSaveLoad(t *testing.T) {
 		t.Fatalf("LoadEncryptedEnvelope: %v", err)
 	}
 	data, _ := json.Marshal(loaded)
-	got, err := NewVerifier(pub, CurrentVersion).VerifyEncrypted(data, aesKey)
+	v, _ := NewVerifier(pub, CurrentVersion)
+	got, err := v.VerifyEncrypted(data, aesKey)
 	if err != nil {
 		t.Fatalf("verify loaded encrypted: %v", err)
 	}
@@ -366,13 +397,14 @@ func TestEncryptedConcurrentVerify(t *testing.T) {
 	aesKey, _ := GenerateAESKey()
 
 	lic := &License{Product: "acme", Expiry: time.Now().Add(time.Hour)}
-	env, err := NewSigner(priv, CurrentVersion).SignEncrypted(lic, aesKey)
+	signer, _ := NewSigner(priv, CurrentVersion)
+	env, err := signer.SignEncrypted(lic, aesKey)
 	if err != nil {
 		t.Fatalf("SignEncrypted: %v", err)
 	}
 	data, _ := json.Marshal(env)
 
-	v := NewVerifier(pub, CurrentVersion)
+	v, _ := NewVerifier(pub, CurrentVersion)
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
@@ -386,13 +418,101 @@ func TestEncryptedConcurrentVerify(t *testing.T) {
 	wg.Wait()
 }
 
-func contains(s, sub string) bool { return indexOf(s, sub) >= 0 }
-
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
+func TestNewSignerKeyValidation(t *testing.T) {
+	_, err := NewSigner(nil, CurrentVersion)
+	if err == nil {
+		t.Fatal("expected error for nil private key")
 	}
-	return -1
+	_, err = NewSigner(ed25519.PrivateKey(make([]byte, 10)), CurrentVersion)
+	if err == nil {
+		t.Fatal("expected error for short private key")
+	}
+}
+
+func TestNewVerifierKeyValidation(t *testing.T) {
+	_, err := NewVerifier(nil, CurrentVersion)
+	if err == nil {
+		t.Fatal("expected error for nil public key")
+	}
+	_, err = NewVerifier(ed25519.PublicKey(make([]byte, 10)), CurrentVersion)
+	if err == nil {
+		t.Fatal("expected error for short public key")
+	}
+}
+
+func TestSignDoesNotMutateInput(t *testing.T) {
+	_, priv := newTestPair(t)
+	lic := &License{Product: "acme", Version: 0}
+	signer, _ := NewSigner(priv, CurrentVersion)
+	_, err := signer.Sign(lic)
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	if lic.Version != 0 {
+		t.Fatalf("Sign mutated input License: version = %d, want 0", lic.Version)
+	}
+}
+
+func TestParseEnvelopeErrors(t *testing.T) {
+	cases := []struct {
+		name string
+		data string
+	}{
+		{"invalid json", "{not json"},
+		{"missing version", `{"alg":"ed25519","license":"dQ==","signature":"dQ=="}`},
+		{"bad alg", `{"version":1,"alg":"rsa","license":"dQ==","signature":"dQ=="}`},
+		{"empty license", `{"version":1,"alg":"ed25519","license":"","signature":"dQ=="}`},
+		{"bad license base64", `{"version":1,"alg":"ed25519","license":"!!!","signature":"dQ=="}`},
+		{"bad signature base64", `{"version":1,"alg":"ed25519","license":"dQ==","signature":"!!!"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseEnvelope([]byte(tc.data))
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !errors.Is(err, ErrMalformed) {
+				t.Fatalf("want ErrMalformed, got %v", err)
+			}
+		})
+	}
+}
+
+func TestPrettyLicense(t *testing.T) {
+	_, priv := newTestPair(t)
+	lic := &License{Product: "acme", Subject: "bob", Features: []string{"pro"}}
+	signer, _ := NewSigner(priv, CurrentVersion)
+	env, err := signer.Sign(lic)
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	pretty, err := env.PrettyLicense()
+	if err != nil {
+		t.Fatalf("PrettyLicense: %v", err)
+	}
+	if !strings.Contains(pretty, "acme") || !strings.Contains(pretty, "bob") {
+		t.Fatalf("PrettyLicense output missing expected fields: %s", pretty)
+	}
+}
+
+func TestStrictModeAliases(t *testing.T) {
+	pub, priv := newTestPair(t)
+	lic := &License{
+		Product: "acme",
+		Machine: &MachineBinding{Fingerprint: "fp-main", Aliases: []string{"fp-alias"}},
+	}
+	env := mustSign(t, priv, lic)
+	// strict mode should match via alias
+	fpAlias := func() (string, error) { return "fp-alias", nil }
+	v, _ := NewVerifier(pub, CurrentVersion)
+	if _, err := v.WithFingerprint(fpAlias).Verify(envBytes(t, env)); err != nil {
+		t.Fatalf("strict alias match should pass: %v", err)
+	}
+}
+
+func TestFingerprintFromSystemUUIDEmpty(t *testing.T) {
+	_, err := machine.FingerprintFromSystemUUID("")
+	if err == nil {
+		t.Fatal("expected error for empty system UUID")
+	}
 }

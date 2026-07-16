@@ -47,8 +47,8 @@ func usage() {
 
 Usage:
   license-tool genkey      [-priv private.pem] [-pub public.pem]
-  license-tool sign        -key private.pem -in template.json [-out license.lic] [-version 1] [-system-uuid ABCD1234...]
-  license-tool verify      -pub public.pem -in license.lic
+  license-tool sign        -key private.pem -in template.json [-out license.lic] [-version 1] [-system-uuid ABCD1234...] [-aes aes.key]
+  license-tool verify      -pub public.pem -in license.lic [-version 1] [-aes aes.key]
   license-tool fingerprint
 `)
 }
@@ -92,6 +92,7 @@ func cmdSign(args []string) {
 	out := fs.String("out", "license.lic", "output .lic path")
 	version := fs.Int("version", licensing.CurrentVersion, "license version")
 	sysUUID := fs.String("system-uuid", "", "bind license to this host system-uuid (dmidecode -s system-uuid, upper case, no dashes); overrides template")
+	aesKeyPath := fs.String("aes", "", "AES-256 key file for encrypted output; produces .enc instead of .lic")
 	_ = fs.Parse(args)
 	if *key == "" || *in == "" {
 		fatal(fmt.Errorf("sign requires -key and -in"))
@@ -117,12 +118,41 @@ func cmdSign(args []string) {
 		lic.IssuedAt = time.Now().UTC()
 	}
 	if *sysUUID != "" {
+		fp, err := machine.FingerprintFromSystemUUID(*sysUUID)
+		if err != nil {
+			fatal(fmt.Errorf("system-uuid: %w", err))
+		}
 		lic.Machine = &licensing.MachineBinding{
-			Fingerprint: machine.FingerprintFromSystemUUID(*sysUUID),
+			Fingerprint: fp,
 		}
 	}
 
-	env, err := licensing.NewSigner(priv, *version).Sign(&lic)
+	signer, err := licensing.NewSigner(priv, *version)
+	if err != nil {
+		fatal(err)
+	}
+
+	if *aesKeyPath != "" {
+		aesKey, err := os.ReadFile(*aesKeyPath)
+		if err != nil {
+			fatal(fmt.Errorf("read AES key: %w", err))
+		}
+		enc, err := signer.SignEncrypted(&lic, aesKey)
+		if err != nil {
+			fatal(err)
+		}
+		outPath := *out
+		if outPath == "license.lic" {
+			outPath = "license.enc"
+		}
+		if err := licensing.SaveEncryptedEnvelope(outPath, enc); err != nil {
+			fatal(err)
+		}
+		fmt.Printf("signed+encrypted -> %s (version %d)\n", outPath, enc.Version)
+		return
+	}
+
+	env, err := signer.Sign(&lic)
 	if err != nil {
 		fatal(err)
 	}
@@ -135,7 +165,9 @@ func cmdSign(args []string) {
 func cmdVerify(args []string) {
 	fs := flag.NewFlagSet("verify", flag.ExitOnError)
 	pubPath := fs.String("pub", "", "public key PEM path")
-	in := fs.String("in", "", "license .lic path")
+	in := fs.String("in", "", "license .lic or .enc path")
+	version := fs.Int("version", licensing.CurrentVersion, "license version to trust")
+	aesKeyPath := fs.String("aes", "", "AES-256 key file (for encrypted licenses)")
 	_ = fs.Parse(args)
 	if *pubPath == "" || *in == "" {
 		fatal(fmt.Errorf("verify requires -pub and -in"))
@@ -154,8 +186,22 @@ func cmdVerify(args []string) {
 		fatal(err)
 	}
 
-	v := licensing.NewVerifier(pub, licensing.CurrentVersion).WithFingerprint(machine.Fingerprint)
-	lic, err := v.Verify(data)
+	v, err := licensing.NewVerifier(pub, *version)
+	if err != nil {
+		fatal(err)
+	}
+	v.WithFingerprint(machine.Fingerprint)
+
+	var lic *licensing.License
+	if *aesKeyPath != "" {
+		aesKey, err := os.ReadFile(*aesKeyPath)
+		if err != nil {
+			fatal(fmt.Errorf("read AES key: %w", err))
+		}
+		lic, err = v.VerifyEncrypted(data, aesKey)
+	} else {
+		lic, err = v.Verify(data)
+	}
 	if err != nil {
 		fmt.Printf("INVALID: %v\n", err)
 		os.Exit(1)

@@ -127,7 +127,8 @@ func EncryptEnvelope(env *Envelope, key []byte) (*EncryptedEnvelope, error) {
 // signature verification.
 //
 // The key must match the one used during EncryptEnvelope. A wrong key
-// causes GCM authentication to fail, returning ErrMalformed.
+// causes GCM authentication to fail, returning ErrDecryptionFailed.
+// If the decrypted data is not valid JSON, ErrMalformed is returned.
 func DecryptEnvelope(enc *EncryptedEnvelope, key []byte) (*Envelope, error) {
 	if len(key) != AESKeySize {
 		return nil, fmt.Errorf("license: aes key must be %d bytes, got %d", AESKeySize, len(key))
@@ -137,7 +138,7 @@ func DecryptEnvelope(enc *EncryptedEnvelope, key []byte) (*Envelope, error) {
 	}
 	plaintext, err := aesGCMOpen(key, enc.Ciphertext)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrMalformed, err)
+		return nil, fmt.Errorf("%w: %v", ErrDecryptionFailed, err)
 	}
 	var env Envelope
 	if err := json.Unmarshal(plaintext, &env); err != nil {

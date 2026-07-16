@@ -1,5 +1,9 @@
 //go:build ignore
 
+// This script regenerates the Ed25519 key pair used by the license example.
+//
+// WARNING: The generated private key is for demonstration purposes only.
+// Never commit real private keys to version control or use them in production.
 package main
 
 import (

@@ -50,16 +50,13 @@ func isPlaceholder(s string) bool {
 		}
 	}
 	// all-identical characters, e.g. "00000000" or "xxxxxxxx"
-	if len(t) > 0 {
-		r := t[0]
-		for i := 1; i < len(t); i++ {
-			if t[i] != r {
-				return false
-			}
+	r := t[0]
+	for i := 1; i < len(t); i++ {
+		if t[i] != r {
+			return false
 		}
-		return true
 	}
-	return false
+	return true
 }
 
 // normalize hashes the raw identifier and formats it as a UUID v5 string
@@ -116,10 +113,10 @@ func rawFingerprint() (string, error) {
 		if s := readFileTrim("/sys/class/dmi/id/board_serial"); s != "" && !isPlaceholder(s) {
 			return "board:" + s, nil
 		}
-		if s := readFileTrim("/etc/machine-id"); s != "" {
+		if s := readFileTrim("/etc/machine-id"); s != "" && !isPlaceholder(s) {
 			return "mid:" + s, nil
 		}
-		if s := readFileTrim("/var/lib/dbus/machine-id"); s != "" {
+		if s := readFileTrim("/var/lib/dbus/machine-id"); s != "" && !isPlaceholder(s) {
 			return "mid:" + s, nil
 		}
 	case "darwin":
@@ -174,8 +171,15 @@ func systemUUIDToken(raw string) string {
 // license to a target host whose system UUID is known (e.g. from inventory)
 // without running on that host: the resulting token matches what the target's
 // Fingerprint() computes at verification time.
-func FingerprintFromSystemUUID(raw string) string {
-	return normalize(systemUUIDToken(raw))
+//
+// Returns an error if raw is empty or a placeholder, preventing accidental
+// issuance of licenses that can never be verified.
+func FingerprintFromSystemUUID(raw string) (string, error) {
+	token := systemUUIDToken(raw)
+	if token == "" {
+		return "", fmt.Errorf("machine: empty or placeholder system UUID")
+	}
+	return normalize(token), nil
 }
 
 // SystemUUID returns the host's DMI system UUID (the value of
@@ -187,8 +191,10 @@ func FingerprintFromSystemUUID(raw string) string {
 //
 // It shells out to dmidecode, which reads the DMI/SMBIOS table from /dev/mem.
 // In container deployments /dev/mem and /sbin/dmidecode must be bind-mounted
-// from the host (see the project's java-compose.yml) so the value matches the
-// one used when the license was issued.
+// from the host so the value matches the one used when the license was issued.
+//
+// Note: SystemUUID only works on Linux (requires dmidecode). On other
+// platforms it returns an error.
 //
 // Fail-closed: if dmidecode is unavailable, or it returns an empty/placeholder
 // identifier, an error is returned. It deliberately does NOT fall back to

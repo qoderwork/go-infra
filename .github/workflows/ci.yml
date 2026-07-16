@@ -18,14 +18,23 @@ jobs:
           go-version: "1.24"
           cache: true
 
-      - name: Test
+      - name: Test lifecycle
         run: go test ./lifecycle/... -count=1 -race
+
+      - name: Test licensing
+        run: go test ./licensing/... -count=1 -race
+
+      - name: Build license-tool
+        run: go build -C cmd/license-tool -v ./...
 
       - name: Build examples
         run: |
           go build -C examples/http_server -v ./...
           go build -C examples/worker -v ./...
+          go build -C examples/license -v ./...
 
+      - name: Vulnerability check
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest && govulncheck ./...
 
   lint:
     name: golangci-lint

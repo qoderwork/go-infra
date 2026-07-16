@@ -14,9 +14,8 @@ const (
 	publicPEMType  = "PUBLIC KEY"  // PKIX
 )
 
-// GenerateKey creates a new Ed25519 key pair. The public key is returned
-// first because callers typically persist the private key (secret) and ship
-// only the public key embedded in their application.
+// GenerateKey creates a new Ed25519 key pair. The return order (pub, priv)
+// matches the Go standard library convention (ed25519.GenerateKey).
 func GenerateKey() (ed25519.PublicKey, ed25519.PrivateKey, error) {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

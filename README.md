@@ -7,7 +7,7 @@ Go 基础设施工具集，用于构建生产级应用。
 | 包 | 说明 |
 |---|---|
 | [lifecycle](./lifecycle) | 应用生命周期管理：顺序启动、LIFO 关闭、信号处理、优雅停机 |
-| [license](./license) | 离线软件授权：Ed25519 签名、机器绑定、Feature/Capacity 两层授权、密钥轮换 |
+| [licensing](./licensing) | 离线软件授权：Ed25519 签名、机器绑定、Feature/Capacity 两层授权、密钥轮换 |
 
 ## 使用
 
@@ -49,7 +49,7 @@ Manager 提供两种"等停机信号"的入口，按需选择：
 - **数据模型**：`License` 含 `ID / Product / Subject / Features[] / Capacity / NotBefore / Expiry / Machine / Version`。`Features` 是功能开关列表，`Capacity` 是数量上限（`map[string]int64`），二者构成 Feature + Capacity 两层授权。
 - **确定性签名**：签名字节 = `License` 结构体的 JSON 编码。Go 的 `json` 按字段声明顺序输出、并对 map 的 key 排序，因此签发端与验签端产生完全一致字节。
 - **机器绑定**：`Machine` 声明允许的机器指纹列表；`strict` 要求精确匹配（取不到指纹则失败），`loose` 在取不到指纹时放行。指纹由 `license/machine` 计算（主板序列号 → `/etc/machine-id` → hostname 回退链，sha256 归一化并拒占位符）。
-- **密钥轮换**：`Version` 字段选择验签用的公钥；`Verifier.WithKey(pub, v)` 注册多版本公钥，换密钥时旧授权仍有效。
+- **密钥轮换**：`Version` 字段选择验签用的公钥；`Verifier.WithKey(v, pub)` 注册多版本公钥，换密钥时旧授权仍有效。
 
 ### 快速开始
 
@@ -66,9 +66,8 @@ go run ./cmd/license-tool sign -key private.pem -in template.json -out license.l
 ```go
 pub, _ := license.DecodePublicKeyPEM(pubPEM) // pubPEM 用 go:embed 内置
 data, _ := os.ReadFile("license.lic")
-lic, err := license.NewVerifier(pub, license.CurrentVersion).
-    WithFingerprint(machine.Fingerprint).
-    Verify(data)
+v, _ := license.NewVerifier(pub, license.CurrentVersion)
+lic, err := v.WithFingerprint(machine.Fingerprint).Verify(data)
 if err != nil { /* 授权无效：err 说明原因 */ }
 _ = lic.HasFeature("advanced")
 n := lic.CapacityOf("nodes")

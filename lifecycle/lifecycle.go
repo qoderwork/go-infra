@@ -107,17 +107,29 @@ func (m *Manager) Add(t Task) {
 
 // OnStart registers a hook called before any task is started.
 // If any hook returns an error, Start aborts without starting any task.
+// Must be called before Start; otherwise the hook is ignored and a warning
+// is logged.
 func (m *Manager) OnStart(fn func(ctx context.Context) error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.running || m.stopped {
+		m.logger.Warn("lifecycle: OnStart called after Start/Stop, ignoring")
+		return
+	}
 	m.onStartHooks = append(m.onStartHooks, fn)
 }
 
 // OnStop registers a hook called after all tasks have been stopped.
 // Errors are accumulated into the Stop return value.
+// Must be called before Start; otherwise the hook is ignored and a warning
+// is logged.
 func (m *Manager) OnStop(fn func(ctx context.Context) error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.running || m.stopped {
+		m.logger.Warn("lifecycle: OnStop called after Start/Stop, ignoring")
+		return
+	}
 	m.onStopHooks = append(m.onStopHooks, fn)
 }
 
