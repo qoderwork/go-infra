@@ -165,6 +165,32 @@ func TestAny(t *testing.T) {
 	}
 }
 
+func TestIsUnique(t *testing.T) {
+	if !IsUnique([]int{1, 2, 3}) {
+		t.Error("IsUnique(1,2,3) = false, want true")
+	}
+	if IsUnique([]int{1, 2, 2}) {
+		t.Error("IsUnique(1,2,2) = true, want false")
+	}
+	if !IsUnique([]int{}) {
+		t.Error("IsUnique(empty) = false, want true")
+	}
+}
+
+func TestUniqueBy(t *testing.T) {
+	got := UniqueBy([]string{"aa", "bb", "ccc"}, func(s string) int {
+		return len(s)
+	})
+	want := []string{"aa", "ccc"}
+	if !equal(got, want) {
+		t.Errorf("UniqueBy = %v, want %v", got, want)
+	}
+
+	if got := UniqueBy([]string{}, func(s string) string { return s }); len(got) != 0 {
+		t.Errorf("UniqueBy(empty) = %v, want empty", got)
+	}
+}
+
 func equal[T comparable](a, b []T) bool {
 	if len(a) != len(b) {
 		return false

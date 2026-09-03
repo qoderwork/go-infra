@@ -16,60 +16,6 @@ import (
 	"github.com/qoderwork/go-infra/assert"
 )
 
-// ==== array.go ====
-
-func TestReverse(t *testing.T) {
-	// 验证正常路径：元素顺序被完全反转
-	got := Reverse([]int{1, 2, 3, 4})
-	assert.Equal(t, []int{4, 3, 2, 1}, got)
-
-	// 验证空切片不会 panic，返回仍是空切片
-	assert.Empty(t, Reverse([]int{}))
-
-	// 验证原切片不被修改，Reverse 内部是克隆后反转
-	src := []int{1, 2, 3}
-	Reverse(src)
-	assert.Equal(t, []int{1, 2, 3}, src, "原切片不应被修改")
-}
-
-func TestUnique(t *testing.T) {
-	// 全部唯一时返回 true
-	assert.True(t, Unique([]int{1, 2, 3}))
-	// 存在重复时返回 false
-	assert.False(t, Unique([]int{1, 2, 2}))
-	// 空切片没有任何重复，应返回 true
-	assert.True(t, Unique([]int{}))
-}
-
-func TestAny(t *testing.T) {
-	// 命中条件返回 true
-	assert.True(t, Any([]int{1, 2, 3}, func(v int) bool { return v == 2 }))
-	// 全部不命中返回 false
-	assert.False(t, Any([]int{1, 2, 3}, func(v int) bool { return v > 10 }))
-	// 空切片必然不命中
-	assert.False(t, Any([]int{}, func(v int) bool { return true }))
-}
-
-func TestDeduplicationFunc(t *testing.T) {
-	// 按自定义 key 去重：长度相同的字符串只保留第一个
-	got := DeduplicationFunc([]string{"aa", "bb", "ccc"}, func(s string) string {
-		return string(rune(len(s)))
-	})
-	assert.Equal(t, []string{"aa", "ccc"}, got)
-
-	// 空输入返回空切片而非 nil 异常
-	assert.Empty(t, DeduplicationFunc([]string{}, func(s string) string { return s }))
-}
-
-func TestDeduplication(t *testing.T) {
-	// 重复元素被去除且保持首次出现的顺序
-	got := Deduplication(3, 1, 3, 2, 1)
-	assert.Equal(t, []int{3, 1, 2}, got)
-
-	// 无入参返回空切片
-	assert.Empty(t, Deduplication[int]())
-}
-
 // ==== cache.go ====
 
 func TestUseCache(t *testing.T) {

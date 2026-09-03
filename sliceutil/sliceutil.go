@@ -18,6 +18,37 @@ func Unique[T comparable](s []T) []T {
 	return result
 }
 
+// IsUnique reports whether all elements in s are distinct.
+func IsUnique[T comparable](s []T) bool {
+	seen := make(map[T]struct{}, len(s))
+	for _, v := range s {
+		if _, ok := seen[v]; ok {
+			return false
+		}
+		seen[v] = struct{}{}
+	}
+	return true
+}
+
+// UniqueBy returns a new slice with duplicate values removed, where the
+// uniqueness key is derived by fn. Order is preserved and the first
+// occurrence of each key is kept.
+func UniqueBy[T any, K comparable](s []T, fn func(T) K) []T {
+	if len(s) == 0 {
+		return nil
+	}
+	seen := make(map[K]struct{}, len(s))
+	result := make([]T, 0, len(s))
+	for _, v := range s {
+		key := fn(v)
+		if _, ok := seen[key]; !ok {
+			seen[key] = struct{}{}
+			result = append(result, v)
+		}
+	}
+	return result
+}
+
 // Intersect returns a new slice containing elements that are in both slices.
 // Order follows the first slice. Duplicates in the result are removed.
 func Intersect[T comparable](a, b []T) []T {
