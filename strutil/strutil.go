@@ -75,8 +75,9 @@ func InitialsWithSeparator(s, sep string) string {
 	parts := strings.Fields(s)
 	initials := make([]string, len(parts))
 	for i, p := range parts {
-		if len(p) > 0 {
-			initials[i] = strings.ToUpper(string(p[0]))
+		r := []rune(p)
+		if len(r) > 0 {
+			initials[i] = strings.ToUpper(string(r[0]))
 		}
 	}
 	return strings.Join(initials, sep)
@@ -91,8 +92,9 @@ func Abbreviate(s string, n int) string {
 	parts := strings.Fields(s)
 	var b strings.Builder
 	for _, p := range parts {
-		if len(p) >= n {
-			b.WriteString(p[:n])
+		r := []rune(p)
+		if len(r) >= n {
+			b.WriteString(string(r[:n]))
 		} else {
 			b.WriteString(p)
 		}
@@ -109,8 +111,9 @@ func AbbreviateWithSeparator(s string, n int, sep string) string {
 	parts := strings.Fields(s)
 	abbrevs := make([]string, len(parts))
 	for i, p := range parts {
-		if len(p) >= n {
-			abbrevs[i] = p[:n]
+		r := []rune(p)
+		if len(r) >= n {
+			abbrevs[i] = string(r[:n])
 		} else {
 			abbrevs[i] = p
 		}

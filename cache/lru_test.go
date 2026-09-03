@@ -3,6 +3,7 @@ package cache
 import (
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestLRUBasic(t *testing.T) {
@@ -143,5 +144,31 @@ func TestLRUZeroMaxEntries(t *testing.T) {
 	// No eviction should happen.
 	if c.Len() != 3 {
 		t.Fatalf("len = %d, want 3 (no limit)", c.Len())
+	}
+}
+
+func TestThreadSafeLRUOnEvictedReentrant(t *testing.T) {
+	// The eviction callback must run outside the lock, otherwise a re-entrant
+	// call into the cache would deadlock. Guard with a timeout so a regression
+	// fails with a clear message instead of hanging.
+	done := make(chan struct{})
+	var c *ThreadSafeLRU
+	c = NewThreadSafeLRUWithEviction(2, func(k Key, v interface{}) {
+		// Re-enter the cache; if the callback ran under the lock this blocks forever.
+		c.Get(k)
+	})
+	go func() {
+		c.Add("a", 1)
+		c.Add("b", 2)
+		c.Add("c", 3) // evicts "a", triggering the re-entrant callback
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("deadlock: OnEvicted ran while holding the lock")
+	}
+	if got, ok := c.Get("c"); !ok || got != 3 {
+		t.Fatalf("Get(c) = %v, %v, want 3, true", got, ok)
 	}
 }

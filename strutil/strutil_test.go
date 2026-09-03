@@ -93,6 +93,25 @@ func TestAbbreviate(t *testing.T) {
 	}
 }
 
+func TestRuneAwareAbbreviation(t *testing.T) {
+	tests := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"InitialsWithSeparator", InitialsWithSeparator("张三 李四", "-"), "张-李"},
+		{"Abbreviate two words", Abbreviate("张三 李四", 1), "张李"},
+		{"Abbreviate single word", Abbreviate("张三李四", 1), "张"},
+		{"Abbreviate n=2", Abbreviate("张三李四", 2), "张三"},
+		{"AbbreviateWithSeparator", AbbreviateWithSeparator("张三 李四", 1, "-"), "张-李"},
+	}
+	for _, tt := range tests {
+		if tt.got != tt.want {
+			t.Errorf("%s = %q, want %q", tt.name, tt.got, tt.want)
+		}
+	}
+}
+
 func TestReverse(t *testing.T) {
 	tests := []struct {
 		in, want string

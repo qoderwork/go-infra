@@ -129,3 +129,29 @@ func TestLockFreeGetAll(t *testing.T) {
 		}
 	}
 }
+
+func TestLockFreeLen(t *testing.T) {
+	q := NewLockFree(8, 0)
+	for i := 0; i < 8; i++ {
+		if !q.Put(i) {
+			t.Fatalf("Put %d failed", i)
+		}
+	}
+	if q.Len() != 8 {
+		t.Fatalf("Len = %d, want 8", q.Len())
+	}
+	for i := 0; i < 3; i++ {
+		if _, ok := q.Get(); !ok {
+			t.Fatalf("Get %d failed", i)
+		}
+	}
+	if q.Len() != 5 {
+		t.Fatalf("Len = %d, want 5", q.Len())
+	}
+	for q.Len() > 0 {
+		q.Get()
+	}
+	if q.Len() != 0 {
+		t.Fatalf("Len = %d, want 0 after drain", q.Len())
+	}
+}

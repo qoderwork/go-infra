@@ -21,7 +21,9 @@ type casSlot struct {
 // multiple-consumer (MPMC) scenarios.
 //
 // The queue has a fixed capacity that is rounded up to the nearest power of two.
-// Put operations block when the queue is full; Get operations block when empty.
+// Operations are non-blocking: Put returns false when the queue is full and Get
+// returns nil, false when the queue is empty. Callers that need to wait should
+// retry in a loop.
 type LockFree struct {
 	sleepTime time.Duration
 	capacity  uint64
@@ -33,7 +35,9 @@ type LockFree struct {
 
 // NewLockFree creates a new lock-free queue with the given capacity.
 // Capacity is rounded up to the nearest power of two.
-// sleepTime specifies how long to wait when queue is full/empty before retrying.
+// sleepTime, when non-zero, is an optional backoff applied before returning
+// false from a Put/Get that observes the queue full/empty, letting polling
+// callers avoid busy-waiting. It does not make the operations block.
 func NewLockFree(capacity uint64, sleepTime time.Duration) *LockFree {
 	capacity = uint64(mathutil.CeilToPowerOfTwo(int(capacity)))
 	q := &LockFree{
@@ -67,13 +71,14 @@ func (q *LockFree) String() string {
 func (q *LockFree) Len() uint64 {
 	putPos := atomic.LoadUint64(&q.putPos)
 	getPos := atomic.LoadUint64(&q.getPos)
-	if putPos > getPos {
-		return putPos - getPos
-	}
-	return 0
+	// Unsigned subtraction is correct even after putPos/getPos wrap around,
+	// since the queue length is always bounded well below 2^64.
+	return putPos - getPos
 }
 
-// Put adds a value to the queue. Returns false if the queue is full.
+// Put adds a value to the queue. Returns false if the queue is full or if the
+// CAS reservation loses a race with another producer; callers must retry on
+// false to avoid dropping items.
 // This method is safe for concurrent use by multiple producers.
 func (q *LockFree) Put(val interface{}) bool {
 	putPos := atomic.LoadUint64(&q.putPos)
@@ -107,7 +112,8 @@ func (q *LockFree) Put(val interface{}) bool {
 }
 
 // Get removes and returns a value from the queue.
-// Returns nil, false if the queue is empty.
+// Returns nil, false if the queue is empty or if the CAS reservation loses a
+// race with another consumer; callers must retry on false.
 // This method is safe for concurrent use by multiple consumers.
 func (q *LockFree) Get() (interface{}, bool) {
 	putPos := atomic.LoadUint64(&q.putPos)
