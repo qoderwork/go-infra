@@ -1,6 +1,7 @@
 package queue
 
-// CirQueue 环形队列，不支持并发安全，应该由调用者控制并发安全
+// CirQueue 环形队列，不支持并发安全，应该由调用者控制并发安全。
+// 容量由 uint8 索引决定，上限 255。
 type CirQueue[T any] struct {
 	over bool
 	idx  uint8
@@ -8,7 +9,12 @@ type CirQueue[T any] struct {
 	data []T
 }
 
+// NewCirQueue 创建容量为 size 的环形队列。size 必须 >= 1：
+// size=0 时取模会除零、写入会越界，这里提前给出明确错误。
 func NewCirQueue[T any](size uint8) *CirQueue[T] {
+	if size == 0 {
+		panic("queue: NewCirQueue size must be at least 1")
+	}
 	return &CirQueue[T]{
 		size: size,
 		data: make([]T, size),

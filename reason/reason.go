@@ -4,10 +4,15 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 )
 
 // codes 记录所有已注册的 reason，用于启动期检测重复定义。
-var codes = make(map[string]string, 8)
+// codesMu 保护并发注册（并行测试、运行期动态注册）。
+var (
+	codesMu sync.Mutex
+	codes   = make(map[string]string, 8)
+)
 
 // CustomError 是统一错误接口。
 // 所有方法均返回新对象，不修改原错误（不可变语义）。
@@ -94,15 +99,17 @@ func (e *Error) Is(err error) bool {
 // With 追加开发者排查信息到 details，返回新错误副本。
 func (e *Error) With(args ...string) CustomError {
 	newErr := *e
-	newErr.Details = append(append(newErr.Details, e.Details...), args...)
+	// Copy before appending: after the shallow struct copy, newErr.Details
+	// shares its backing array with e.Details. Appending in place would both
+	// duplicate the existing entries and mutate the original error, breaking
+	// the immutable-value contract of CustomError.
+	newErr.Details = append(append([]string(nil), e.Details...), args...)
 	return &newErr
 }
 
 // Withf 格式化追加 details，返回新错误副本。
 func (e *Error) Withf(format string, args ...any) CustomError {
-	newErr := *e
-	newErr.Details = append(append(newErr.Details, e.Details...), fmt.Sprintf(format, args...))
-	return &newErr
+	return e.With(fmt.Sprintf(format, args...))
 }
 
 // WithCause 返回一个携带底层错误的新错误，用于 errors.Is/As 链路解包。
@@ -160,6 +167,8 @@ func (e *Error) GetReason() string {
 // 目的是在程序启动阶段就暴露冲突，避免不同模块使用相同的 reason
 // 导致错误判断语义混乱。
 func NewError(reason, msg string) CustomError {
+	codesMu.Lock()
+	defer codesMu.Unlock()
 	if _, ok := codes[reason]; ok {
 		panic(fmt.Sprintf("err reason %s exists", reason))
 	}

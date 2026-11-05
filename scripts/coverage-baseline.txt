@@ -1,0 +1,40 @@
+# Per-package minimum statement coverage, consumed by scripts/check-coverage.sh.
+# Ratchet rule: only raise these numbers, never lower them.
+# Format: <import path> <minimum percent>
+#
+# Values are the measured coverage rounded down with ~1 point of headroom, so
+# runtime-dependent branches (e.g. system.PortUsed binding a real socket) do
+# not make CI flaky. Raise a value when you add tests, never lower one to make
+# a failing build pass.
+#
+# cmd/license-tool is exercised through a subprocess, so `go test -cover`
+# cannot attribute its statements. It stays at 0 until the main logic is
+# extracted into testable functions.
+# licensing/machine (52) and cache (68) are platform-branch heavy and are
+# tracked separately; do not use them as an excuse to lower other packages.
+github.com/qoderwork/go-infra/assert 91
+github.com/qoderwork/go-infra/buffer/elastic 72
+github.com/qoderwork/go-infra/buffer/linkedlist 85
+github.com/qoderwork/go-infra/buffer/ring 80
+github.com/qoderwork/go-infra/buffer/ringpool 94
+github.com/qoderwork/go-infra/bytepool 88
+github.com/qoderwork/go-infra/bytesconv 100
+github.com/qoderwork/go-infra/cache 68
+github.com/qoderwork/go-infra/cmd/license-tool 0
+github.com/qoderwork/go-infra/conc 98
+github.com/qoderwork/go-infra/envutil 100
+github.com/qoderwork/go-infra/event 100
+github.com/qoderwork/go-infra/executil 90
+github.com/qoderwork/go-infra/hook 94
+github.com/qoderwork/go-infra/licensing 80
+github.com/qoderwork/go-infra/licensing/machine 52
+github.com/qoderwork/go-infra/lifecycle 80
+github.com/qoderwork/go-infra/mathutil 100
+github.com/qoderwork/go-infra/queue 86
+github.com/qoderwork/go-infra/randutil 90
+github.com/qoderwork/go-infra/reason 96
+github.com/qoderwork/go-infra/sliceutil 88
+github.com/qoderwork/go-infra/structured 81
+github.com/qoderwork/go-infra/strutil 87
+github.com/qoderwork/go-infra/system 75
+github.com/qoderwork/go-infra/workerpool 90

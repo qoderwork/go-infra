@@ -15,7 +15,7 @@ func UseTiming(limit time.Duration) func() time.Duration {
 	return func() time.Duration {
 		sub := time.Since(now)
 		if sub > limit {
-			return sub
+			slog.Default().Error("timing", "cost", sub, "limit", limit)
 		}
 		return sub
 	}
@@ -27,8 +27,13 @@ func UseTimingWithLog(limit time.Duration) func() {
 	return func() {
 		sub := time.Since(now)
 		pc, _, _, _ := runtime.Caller(1)
-		fn := runtime.FuncForPC(pc)
-		log := slog.With("cost", sub, "caller", fn.Name())
+		// FuncForPC returns nil when the caller frame cannot be resolved
+		// (inlining, PC 0). Dereferencing it used to panic.
+		caller := "<unknown>"
+		if fn := runtime.FuncForPC(pc); fn != nil {
+			caller = fn.Name()
+		}
+		log := slog.With("cost", sub, "caller", caller)
 		if sub >= limit {
 			log.Error("timing")
 		} else {

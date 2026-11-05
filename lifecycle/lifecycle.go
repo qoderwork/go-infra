@@ -71,6 +71,11 @@ type Manager struct {
 	closeOnce sync.Once
 	stopErr   error
 	done      chan struct{}
+
+	// stopRequested records a Stop() that arrived while Start() was still
+	// running. Start() performs the shutdown after publishing running state,
+	// so stopOnce is not consumed (and lost) during startup.
+	stopRequested bool
 }
 
 // New creates a Manager with the given options.
@@ -193,15 +198,34 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	m.running = true
 	m.starting = false
+	stopRequested := m.stopRequested
 	m.mu.Unlock()
 
 	m.logger.Info("lifecycle: started", "tasks", len(tasks))
+
+	// Honor a Stop() that arrived during startup. Starting is complete now,
+	// so Stop() sees running == true and performs the real LIFO teardown.
+	if stopRequested {
+		return m.Stop(ctx)
+	}
 	return nil
 }
 
 // Stop shuts down all tasks in reverse order (LIFO).
 // Safe to call multiple times; only the first call has effect.
 func (m *Manager) Stop(ctx context.Context) error {
+	// A Stop() that lands while Start() is still in flight must not run yet:
+	// it would see running == false, consume stopOnce, and leave the Manager
+	// permanently unstoppable. Record the request; Start() executes the real
+	// shutdown once it has published running state.
+	m.mu.Lock()
+	if m.starting {
+		m.stopRequested = true
+		m.mu.Unlock()
+		return nil
+	}
+	m.mu.Unlock()
+
 	m.stopOnce.Do(func() {
 		m.mu.Lock()
 		if !m.running {

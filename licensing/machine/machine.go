@@ -31,12 +31,19 @@ import (
 	"strings"
 )
 
-// placeholderWords are substrings that indicate a BIOS/VM filler value rather
-// than a real hardware id.
-var placeholderWords = []string{
-	"none", "null", "nil", "unknown", "n/a", "na", "default",
-	"to be filled", "system serial", "not specified",
-	"0x0", "o.e.m", "base board",
+// placeholderExact contains short filler tokens. They must match the whole
+// value: a substring match would reject legitimate serials such as
+// "CN123NA45" (contains "na") or "NA-2026-0001".
+var placeholderExact = map[string]struct{}{
+	"none": {}, "null": {}, "nil": {}, "unknown": {}, "n/a": {},
+	"na": {}, "default": {}, "o.e.m": {}, "0x0": {},
+}
+
+// placeholderPhrases are long descriptive fillers. Those are safe to match as
+// substrings because a real hardware id never contains a sentence.
+var placeholderPhrases = []string{
+	"to be filled", "system serial", "not specified", "base board",
+	"default string",
 }
 
 func isPlaceholder(s string) bool {
@@ -44,7 +51,14 @@ func isPlaceholder(s string) bool {
 	if t == "" {
 		return true
 	}
-	for _, w := range placeholderWords {
+	if _, ok := placeholderExact[t]; ok {
+		return true
+	}
+	// BIOS fillers such as "0x00000000" start with 0x0.
+	if strings.HasPrefix(t, "0x0") {
+		return true
+	}
+	for _, w := range placeholderPhrases {
 		if strings.Contains(t, w) {
 			return true
 		}

@@ -155,10 +155,25 @@ func (v *Verifier) checkMachine(b *MachineBinding) error {
 		}
 		return fmt.Errorf("%w: cannot read fingerprint: %v", ErrMachineMismatch, err)
 	}
+	// An empty fingerprint must never satisfy an empty candidate: that would
+	// silently turn strict machine binding into a no-op when hardware ids
+	// cannot be read and the license omits the binding value.
+	if fp == "" {
+		return fmt.Errorf("%w: empty runtime fingerprint", ErrMachineMismatch)
+	}
+	if b.Fingerprint == "" && !b.Loose {
+		return fmt.Errorf("%w: empty fingerprint in binding", ErrMachineMismatch)
+	}
 	if b.Loose {
 		candidates := make([]string, 0, 1+len(b.Aliases))
-		candidates = append(candidates, b.Fingerprint)
-		candidates = append(candidates, b.Aliases...)
+		if b.Fingerprint != "" {
+			candidates = append(candidates, b.Fingerprint)
+		}
+		for _, a := range b.Aliases {
+			if a != "" {
+				candidates = append(candidates, a)
+			}
+		}
 		for _, c := range candidates {
 			if subtle.ConstantTimeCompare([]byte(c), []byte(fp)) == 1 {
 				return nil
@@ -167,11 +182,11 @@ func (v *Verifier) checkMachine(b *MachineBinding) error {
 		return ErrMachineMismatch
 	}
 	// Strict mode: check Fingerprint and Aliases with constant-time comparison.
-	if subtle.ConstantTimeCompare([]byte(b.Fingerprint), []byte(fp)) == 1 {
+	if b.Fingerprint != "" && subtle.ConstantTimeCompare([]byte(b.Fingerprint), []byte(fp)) == 1 {
 		return nil
 	}
 	for _, a := range b.Aliases {
-		if subtle.ConstantTimeCompare([]byte(a), []byte(fp)) == 1 {
+		if a != "" && subtle.ConstantTimeCompare([]byte(a), []byte(fp)) == 1 {
 			return nil
 		}
 	}

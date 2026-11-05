@@ -107,8 +107,14 @@ func (c *TTLMap[K, V]) Load(key K) (V, bool) {
 
 // LoadOrStore 第二个参数，true:获取 load 的数据; false:刚存储的数据
 func (c *TTLMap[K, V]) LoadOrStore(key K, value V, ttl time.Duration) (V, bool) {
-	c.exp.Store(key, time.Now().Add(ttl))
-	return c.data.LoadOrStore(key, value)
+	actual, loaded := c.data.LoadOrStore(key, value)
+	if !loaded {
+		// Write the value before its expiry: Load() checks exp first, so the
+		// old order exposed a window where a key had an expiry but no data.
+		// A successful load must not refresh the original TTL either.
+		c.exp.Store(key, time.Now().Add(ttl))
+	}
+	return actual, loaded
 }
 
 // Delete 删除 k/v

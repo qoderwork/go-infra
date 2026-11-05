@@ -31,6 +31,12 @@ func NewSigner(priv ed25519.PrivateKey, version int) (*Signer, error) {
 func (s *Signer) Sign(lic *License) (*Envelope, error) {
 	// Copy to avoid mutating the caller's License.
 	l := *lic
+	// A strict binding without a fingerprint can never be satisfied by a
+	// correct Verifier, and historically allowed a silent bypass. Reject it
+	// at signing time as well as at verification time.
+	if l.Machine != nil && !l.Machine.Loose && l.Machine.Fingerprint == "" {
+		return nil, fmt.Errorf("license: strict machine binding requires a non-empty fingerprint")
+	}
 	if l.Version == 0 {
 		l.Version = s.version
 	}

@@ -106,9 +106,22 @@ func (s *Stream) WithMaxGoroutines(n int) *Stream {
 	return s
 }
 
+// defaultStreamQueueSize is the minimum callback queue capacity for a stream
+// without an explicit goroutine limit. MaxGoroutines() returns 0 when no
+// limiter is configured, which used to produce a queue of capacity 1: the
+// callbacker blocks waiting for the first callback while a third Go() blocks
+// on the queue. Tasks that wait for the submitter then deadlock. A bounded
+// floor keeps unlimited streams making progress without changing the default
+// (unbounded) concurrency semantics.
+const defaultStreamQueueSize = 64
+
 func (s *Stream) init() {
 	s.initOnce.Do(func() {
-		s.queue = make(chan callbackCh, s.pool.MaxGoroutines()+1)
+		capacity := s.pool.MaxGoroutines() + 1
+		if capacity < defaultStreamQueueSize {
+			capacity = defaultStreamQueueSize
+		}
+		s.queue = make(chan callbackCh, capacity)
 
 		// Start the callbacker.
 		s.callbackerHandle.Go(s.callbacker)

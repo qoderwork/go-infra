@@ -33,6 +33,14 @@ func NewTTLCache(ttl time.Duration) *TTLCache {
 	}
 }
 
+// Close 停止后台清理协程并释放缓存。NewTTLCache 会在构造时启动一个常驻
+// goroutine，调用方必须在不再使用时调用 Close（或直接用 TTLMap.Dispose），
+// 否则按请求/按对象创建缓存会永久泄漏 goroutine 与内存。
+// Close 之后不应再读写该缓存。
+func (t *TTLCache) Close() {
+	t.TTLMap.Dispose()
+}
+
 // Set 设置缓存值
 func (t *TTLCache) Set(_ context.Context, key string, value any) {
 	t.TTLMap.Store(key, value, t.ttl)

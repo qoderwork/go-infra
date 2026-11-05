@@ -64,10 +64,17 @@ func TestPortUsed(t *testing.T) {
 
 func TestCompareVersionFunc(t *testing.T) {
 	eq := func(a, b string) bool { return a == b }
+	lt := func(a, b string) bool { return a < b }
 	assert.True(t, CompareVersionFunc("1.2.3", "1.2.3", eq))
 	assert.False(t, CompareVersionFunc("1.2.3", "1.2.4", eq))
-	// different segment counts short-circuit to true by design
-	assert.True(t, CompareVersionFunc("1.2", "1.2.3", eq))
+	// Missing segments are zero-padded, not treated as "unknown/equal".
+	assert.True(t, CompareVersionFunc("1.2", "1.2.0", eq))
+	assert.False(t, CompareVersionFunc("1.2", "1.2.3", eq))
+	// Segments >= 1000 must not change the normalized width.
+	assert.False(t, CompareVersionFunc("1.2.10", "1.2.1000", eq))
+	assert.True(t, CompareVersionFunc("1.2.3", "1.2.10", lt))
+	// A pre-release suffix is ignored, as in the previous implementation.
+	assert.True(t, CompareVersionFunc("1.2.3-beta", "1.2.3", eq))
 }
 
 func TestExecutableAndGetwd(t *testing.T) {

@@ -77,8 +77,14 @@ func (p *Pool) Wait() {
 	close(p.tasks)
 
 	// After Wait() returns, reset the struct so tasks will be reinitialized on
-	// next use. This better matches the behavior of sync.WaitGroup
-	defer func() { p.initOnce = sync.Once{} }()
+	// next use. This better matches the behavior of sync.WaitGroup. The
+	// panic catcher must be cleared too: otherwise a panic from the first
+	// batch is re-raised by every later Wait(), even when that batch is clean.
+	// The defer also runs when Wait() propagates a panic.
+	defer func() {
+		p.initOnce = sync.Once{}
+		p.handle.reset()
+	}()
 
 	p.handle.Wait()
 }

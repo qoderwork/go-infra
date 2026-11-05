@@ -13,6 +13,12 @@ func TestIsPlaceholder(t *testing.T) {
 		"Not Specified":          true,
 		"ABC123XYZ":              false,
 		"real-board-9f":          false,
+		// Short tokens must match exactly: "na" used to match as a substring
+		// and reject legitimate serials.
+		"CN123NA45":    false,
+		"NA-2026-0001": false,
+		"na":           true,
+		"  N/A  ":      true,
 	}
 	for in, want := range cases {
 		if got := isPlaceholder(in); got != want {
@@ -70,10 +76,10 @@ func TestFingerprintNoPanic(t *testing.T) {
 //	dmidecode -s system-uuid | sed 's/-//g' | awk '{print toupper($0)}'
 func TestNormalizeSystemUUID(t *testing.T) {
 	cases := map[string]string{
-		"4c4c4544-004e-4d10-8034-b4a44c4c4634": "4C4C4544004E4D108034B4A44C4C4634",
-		"4C4C4544-004E-4D10-8034-B4A44C4C4634": "4C4C4544004E4D108034B4A44C4C4634",
+		"4c4c4544-004e-4d10-8034-b4a44c4c4634":     "4C4C4544004E4D108034B4A44C4C4634",
+		"4C4C4544-004E-4D10-8034-B4A44C4C4634":     "4C4C4544004E4D108034B4A44C4C4634",
 		"  a1b2c3d4-1111-2222-3333-444455556666  ": "A1B2C3D4111122223333444455556666",
-		"A1B2C3D4111122223333444455556666":       "A1B2C3D4111122223333444455556666",
+		"A1B2C3D4111122223333444455556666":         "A1B2C3D4111122223333444455556666",
 	}
 	for in, want := range cases {
 		if got := NormalizeSystemUUID(in); got != want {

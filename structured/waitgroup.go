@@ -52,3 +52,12 @@ func (h *WaitGroup) WaitAndRecover() *Recovered {
 	// Return a recovered panic if we caught one from a child goroutine.
 	return h.pc.Recovered()
 }
+
+// reset discards the first captured panic so the WaitGroup can be reused for
+// a second batch. Callers must only invoke it after Wait()/WaitAndRecover()
+// has returned, i.e. when no goroutine from the previous batch is still
+// running. It is intentionally unexported: resetting while the group is live
+// would silently swallow an in-flight panic.
+func (h *WaitGroup) reset() {
+	h.pc.recovered.Store(nil)
+}

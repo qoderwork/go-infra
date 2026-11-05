@@ -52,4 +52,6 @@ var (
 	ErrAccountDisabled = NewError("ErrAccountDisabled", "登录限制")
 )
 
-var _ error = NewError("test_new_error", "")
+// 说明：此处曾注册一个仅用于占位检查的 "test_new_error" reason。
+// 它会永久占用全局注册表中的名字，已移除；需要测试用 reason 时请在测试内
+// 使用唯一名字自行构造。
