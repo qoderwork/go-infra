@@ -10,10 +10,26 @@ import (
 	"github.com/qoderwork/go-infra/mathutil"
 )
 
+// cacheLineSize is the padding granularity used to keep each casSlot on its own
+// cache line, so producers and consumers touching adjacent positions do not
+// false-share.
+const cacheLineSize = 64
+
+// casSlotFieldSize is the unpadded size of the fields below: two uint64 (8 each)
+// plus one interface{} (2 words = 16). casSlotPad rounds the struct up to a full
+// cache line. lockfree_slot_test.go asserts the resulting size, so adding or
+// resizing a field that breaks this assumption fails a test rather than
+// silently reintroducing false sharing.
+const (
+	casSlotFieldSize = 8 + 8 + 16
+	casSlotPad       = cacheLineSize - casSlotFieldSize
+)
+
 type casSlot struct {
 	putNo uint64
 	getNo uint64
 	value interface{}
+	_     [casSlotPad]byte
 }
 
 // LockFree is a lock-free bounded queue based on CAS operations.
@@ -224,4 +240,3 @@ func (q *LockFree) GetAll() []interface{} {
 	}
 	return result
 }
-
