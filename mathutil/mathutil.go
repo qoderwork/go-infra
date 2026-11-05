@@ -1,7 +1,12 @@
-// Package mathutil provides fast math utility functions.
+// Copyright (c) 2021 The Gnet Authors. All rights reserved.
+// Copyright (c) 2019-present Andy Pan
+// Copyright (c) 2017 Joshua J Baker
 //
-// Derived from gnet/pkg/math (https://github.com/panjf2000/gnet),
-// licensed under Apache 2.0.
+// Derived from github.com/panjf2000/gnet, licensed under Apache-2.0.
+// Modified by qoderwork: package renamed and dependencies retargeted.
+// Full text: LICENSES/Apache-2.0.txt; see THIRD_PARTY_LICENSES.md.
+
+// Package mathutil provides fast math utility functions.
 package mathutil
 
 import "math/bits"

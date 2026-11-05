@@ -4,22 +4,40 @@ Go 基础设施工具集，用于构建生产级应用。
 
 ## 包
 
+**零第三方依赖**：`go.mod` 只有 module 与 `go 1.24` 两行，全部包仅依赖标准库。
+
 | 包 | 说明 |
 |---|---|
-| [lifecycle](./lifecycle) | 应用生命周期管理：顺序启动、LIFO 关闭、信号处理、优雅停机 |
-| [licensing](./licensing) | 离线软件授权：Ed25519 签名、机器绑定、Feature/Capacity 两层授权、密钥轮换 |
-| [cache](./cache) | LRU 缓存：支持容量限制、驱逐回调、线程安全包装 |
+| **并发与调度** | |
+| [structured](./structured) | 结构化并发：WaitGroup（panic 传播）、限流任务池、Error/Context/ResultPool、并发 Map/ForEach、有序 Stream、Collector、指数退避 Retry |
+| [workerpool](./workerpool) | 进程级常驻工作池：N 个常驻 worker + 缓冲队列、显式 `ErrQueueFull`、ctx 背压与关闭、panic 恢复不杀 worker |
+| [conc](./conc) | fire-and-forget 助手与并发数据结构：GoRun/GoSafe/Timer、泛型 Map、TTLMap/TTLCache、PanicStack |
+| [queue](./queue) | 无锁队列：有界 CAS 环形队列 `LockFree`、无界 Michael-Scott 泛型队列 `MSQueue[T]`、非并发安全 `CirQueue` |
+| [event](./event) | 类型安全的事件总线（观察者模式），泛型 `Bus[T]` |
+| **缓冲与内存** | |
 | [buffer/ring](./buffer/ring) | 环形缓冲区：实现 `io.Reader`/`io.Writer`，支持自动扩容、ReadFrom/WriteTo |
 | [buffer/ringpool](./buffer/ringpool) | 环形缓冲对象池：带自适应校准，减少 GC 压力 |
 | [buffer/elastic](./buffer/elastic) | 弹性环形缓冲区：懒加载池化缓冲，空时自动归还 |
-| [queue](./queue) | 无锁队列：基于 CAS 的高性能队列，支持 MPSC/MPMC 场景 |
+| [buffer/linkedlist](./buffer/linkedlist) | 字节切片链表缓冲：Peek/Discard 零拷贝窥视、ReadFrom/WriteTo、配合 bytepool 复用 |
 | [bytepool](./bytepool) | 字节切片池：32 级分级池，减少 GC 压力 |
-| [mathutil](./mathutil) | 数学工具：2 的幂运算（Ceil/Floor/Closest/IsPowerOfTwo） |
 | [bytesconv](./bytesconv) | 零拷贝转换：`[]byte` ↔ `string` 无内存分配转换 |
+| **通用工具** | |
+| [lifecycle](./lifecycle) | 应用生命周期管理：顺序启动、LIFO 关闭、信号处理、优雅停机 |
+| [licensing](./licensing) | 离线软件授权：Ed25519 签名、机器绑定、Feature/Capacity 两层授权、密钥轮换 |
+| [cache](./cache) | LRU 缓存：支持容量限制、驱逐回调、线程安全包装 |
+| [reason](./reason) | 错误分类与原因码 |
+| [hook](./hook) | 缓存/转换/摘要/pprof/定时等常用钩子 |
+| [executil](./executil) | 跨平台命令执行（Unix sh / Windows） |
+| [system](./system) | 系统信息、IP、目录与备份工具 |
+| [sliceutil](./sliceutil) | 切片工具：Unique、Intersect、Map、Filter、Reduce（泛型实现）|
+| [strutil](./strutil) | 字符串工具：SwapCase、Capitalize、Abbreviate、Reverse、Truncate 等 |
+| [mathutil](./mathutil) | 数学工具：2 的幂运算（Ceil/Floor/Closest/IsPowerOfTwo） |
 | [randutil](./randutil) | 随机字符串：支持 `math/rand` 和 `crypto/rand`，DNS-1035 兼容 |
 | [envutil](./envutil) | 环境变量解析：String/Int/Float64/Bool，支持默认值和必填 |
-| [strutil](./strutil) | 字符串工具：SwapCase、Capitalize、Abbreviate、Reverse、Truncate 等 |
-| [sliceutil](./sliceutil) | 切片工具：Unique、Intersect、Map、Filter、Reduce（泛型实现）|
+| [assert](./assert) | 零依赖测试断言（替代 testify 常用子集） |
+| **CLI / 示例** | |
+| [cmd/license-tool](./cmd/license-tool) | 授权签发与校验命令行工具 |
+| [examples](./examples) | HTTP 服务、Worker、License 三个完整示例 |
 
 ## 使用
 
@@ -35,6 +53,73 @@ func main() {
 ```
 
 完整示例见 [examples](./examples)。
+
+## 结构化并发（structured）
+
+`structured` 与 `conc` **分工不同，不要混用**：`conc.GoRun` 是 fire-and-forget，子 goroutine 的 panic 只记录日志（含 `PanicStack` 调用栈）不会传播；`structured` 里每个 goroutine 都有归属者，`Wait()` 会把子 goroutine 的 panic 连同栈一起传播回调用方。
+
+```go
+import "github.com/qoderwork/go-infra/structured"
+
+p := structured.NewPool().WithErrors().WithMaxGoroutines(8)
+for _, item := range items {
+    item := item
+    p.Go(func() error { return handle(item) })
+}
+if err := p.Wait(); err != nil {
+    return err // errors.Join 聚合所有任务的错误；子任务 panic 会在此 re-panic
+}
+```
+
+按场景选最小工具：
+
+| 需求 | 入口 |
+|---|---|
+| 起一批 goroutine 并等全部结束 | `structured.WaitGroup` / `Go` + `Wait` |
+| 限制并发数 | `NewPool().WithMaxGoroutines(n)` |
+| 任务会返回错误 / 首个错误取消其它任务 | `WithErrors()` / `WithContext(ctx).WithCancelOnError()` |
+| 收集结果且保持提交顺序 | `NewResultPool[T]()` |
+| 并发处理切片 | `ForEach` / `ForEachIdx` / `Map` / `MapErr` |
+| 任务并发执行、回调按提交顺序串行执行 | `NewStream()` |
+| 并发生产、同步消费结果 | `Collector[T]` 的 `Iter()` / `All()` |
+| 指数退避重试 | `Retry(ctx, cfg, fn)` |
+
+两个使用约束：
+
+- 所有池都必须调用一次 `Wait()`；`With*` 配置方法必须在第一次 `Go()` 之前调用，否则 panic。
+- `Collector.Submit` 在缓冲区满时会阻塞，且 ctx 不能解阻塞它。缓冲区要能容纳所有未消费的提交量，或者先在另一个 goroutine 启动 `All()` / `Iter()`。
+
+## 常驻工作池（workerpool）
+
+`structured.Pool` 是「一批任务」的作用域并发，必须 `Wait()`；`workerpool.Pool` 是**进程级常驻资源**，任务可以在任何时候从任何地方提交，直到 `Close()`。它是 `pkg/pool/goroutine`（ants 包装）的零依赖替代：不引入 ants / x/sync / zap，也不带包级 `init()` 副作用。
+
+```go
+p, err := workerpool.New(8, 1024, workerpool.WithContext(ctx))
+if err != nil {
+    return err
+}
+defer p.Close()
+
+if err := p.Submit(func() { handle(job) }); errors.Is(err, workerpool.ErrQueueFull) {
+    return err // 任务没有被提交，可重试 / 降级 / 上报，绝不会静默丢弃
+}
+// 或者带背压、可取消地等待空位：
+// err = p.SubmitWait(reqCtx, func() { handle(job) })
+```
+
+| | `structured.Pool` | `workerpool.Pool` |
+|---|---|---|
+| 生命周期 | 一批任务，`Wait()` 结束 | 进程级常驻，`Close()` 结束 |
+| 提交 | `Go()` 阻塞等待 goroutine 名额 | `Submit()` 立即返回 / `SubmitWait(ctx)` 背压 |
+| 队列满 | 阻塞 | 返回 `ErrQueueFull`，任务不提交 |
+| 错误 / panic | `WithErrors()` 聚合、panic 传播到 `Wait()` | `WithPanicHandler()` 记录，worker 不死 |
+| 关闭 | `Wait()` | `Close()` 排空队列；`Shutdown(ctx)` 只限制等待时间 |
+
+三个语义要点：
+
+- `Close()` 幂等，会**等所有已入队任务跑完**；`Shutdown(ctx)` 超时只是不再等待，关闭仍在后台继续，用 `Done()` 观察真正结束，任务不会被中途放弃。
+- `SubmitWait` 等空位时持有读锁，但关闭流程会先关 `quit` 唤醒它，再拿写锁 `close(tasks)`，所以不会死锁，也不会出现 send on closed channel。
+- 任务签名是 `func()`，不带 ctx、不返回 error；需要取消或结果时由调用方在闭包里自己传 channel / context。
 
 ## 设计原则
 
@@ -96,6 +181,10 @@ CLI 还有 `verify`（手动校验）和 `fingerprint`（打印当前机器指�
 - ⚠️ **时间旅行**：离线环境下改系统时间可绕过过期。可用 `Verifier.WithMinClock()` 接到一个持久化的"已知最晚时间"来防御时钟回拨。
 - 私钥泄露需走轮换流程（升 `Version` 并签发新密钥，旧版授权靠 `WithKey` 兼容）。
 
+## 第三方代码
+
+`buffer/*`、`bytepool`、`bytesconv`、`mathutil`、`queue/msqueue.go` 派生自 gnet（Apache-2.0）；`structured/` 派生自 sourcegraph/conc 与 go-pkgz/pool（MIT）。原始版权声明保留在各源文件头，许可证全文见 [THIRD_PARTY_LICENSES.md](./THIRD_PARTY_LICENSES.md) 和 [`LICENSES/`](./LICENSES)。
+
 ## License
 
-MIT
+go-infra 主体为 MIT；派生文件按其原始许可证保留归属，详见上节。

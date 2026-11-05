@@ -1,8 +1,13 @@
+// Copyright (c) 2021 The Gnet Authors. All rights reserved.
+// Copyright (c) 2019-present Andy Pan
+// Copyright (c) 2017 Joshua J Baker
+//
+// Derived from github.com/panjf2000/gnet, licensed under Apache-2.0.
+// Modified by qoderwork: package renamed and dependencies retargeted.
+// Full text: LICENSES/Apache-2.0.txt; see THIRD_PARTY_LICENSES.md.
+
 // Package ring implements a memory-efficient circular buffer
 // that implements the io.Reader and io.Writer interfaces.
-//
-// Derived from gnet/pkg/buffer/ring (https://github.com/panjf2000/gnet),
-// licensed under MIT.
 package ring
 
 import (

@@ -1,8 +1,13 @@
+// Copyright (c) 2021 The Gnet Authors. All rights reserved.
+// Copyright (c) 2019-present Andy Pan
+// Copyright (c) 2017 Joshua J Baker
+//
+// Derived from github.com/panjf2000/gnet, licensed under Apache-2.0.
+// Modified by qoderwork: package renamed and dependencies retargeted.
+// Full text: LICENSES/Apache-2.0.txt; see THIRD_PARTY_LICENSES.md.
+
 // Package bytepool provides a pool of byte slices consisting of sync.Pool's
 // that collect byte slices with different length sizes in powers of two.
-//
-// Derived from gnet/pkg/pool/byteslice (https://github.com/panjf2000/gnet),
-// licensed under Apache 2.0.
 package bytepool
 
 import (

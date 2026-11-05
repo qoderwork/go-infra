@@ -1,7 +1,12 @@
-// Package ringpool implements a GC-friendly pool of ring buffers.
+// Copyright (c) 2021 The Gnet Authors. All rights reserved.
+// Copyright (c) 2019-present Andy Pan
+// Copyright (c) 2017 Joshua J Baker
 //
-// Derived from gnet/pkg/pool/ringbuffer (https://github.com/panjf2000/gnet),
-// licensed under Apache-2.0.
+// Derived from github.com/panjf2000/gnet, licensed under Apache-2.0.
+// Modified by qoderwork: package renamed and dependencies retargeted.
+// Full text: LICENSES/Apache-2.0.txt; see THIRD_PARTY_LICENSES.md.
+
+// Package ringpool implements a GC-friendly pool of ring buffers.
 //
 // The pool automatically calibrates itself based on usage patterns,
 // adjusting the default and maximum buffer sizes to minimize memory waste.

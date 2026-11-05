@@ -1,8 +1,13 @@
+// Copyright (c) 2021 The Gnet Authors. All rights reserved.
+// Copyright (c) 2019-present Andy Pan
+// Copyright (c) 2017 Joshua J Baker
+//
+// Derived from github.com/panjf2000/gnet, licensed under Apache-2.0.
+// Modified by qoderwork: package renamed and dependencies retargeted.
+// Full text: LICENSES/Apache-2.0.txt; see THIRD_PARTY_LICENSES.md.
+
 // Package bytesconv provides zero-copy conversion utilities
 // between byte slices and strings.
-//
-// Derived from gnet/pkg/bs (https://github.com/panjf2000/gnet),
-// licensed under Apache 2.0.
 package bytesconv
 
 import "unsafe"

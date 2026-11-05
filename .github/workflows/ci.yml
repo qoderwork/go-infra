@@ -18,11 +18,11 @@ jobs:
           go-version: "1.24"
           cache: true
 
-      - name: Test lifecycle
-        run: go test ./lifecycle/... -count=1 -race
+      - name: Test all packages
+        run: go test ./... -count=1 -race
 
-      - name: Test licensing
-        run: go test ./licensing/... -count=1 -race
+      - name: Build all packages
+        run: go build ./...
 
       - name: Build license-tool
         run: go build -C cmd/license-tool -v ./...
