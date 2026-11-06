@@ -1,4 +1,11 @@
 // Package sliceutil provides slice manipulation utilities.
+//
+// Value semantics: every function that returns a slice (Remove, RemoveAt,
+// Insert, RemoveAll, Union, Unique, Filter, Map, ...) never mutates its input.
+// When it actually changes the contents it allocates a new backing array, so
+// the result does not alias the caller's slice; when nothing changes (a missing
+// value, an out-of-range index) the input itself may be returned. Reverse is
+// the single intentional in-place operation (it returns nothing).
 package sliceutil
 
 // Unique returns a new slice with duplicate values removed.
@@ -95,9 +102,12 @@ func Difference[T comparable](a, b []T) []T {
 }
 
 // Union returns a new slice containing elements that are in either slice.
-// Duplicates are removed.
+// Duplicates are removed. Neither input is mutated.
 func Union[T comparable](a, b []T) []T {
-	return Unique(append(a, b...))
+	combined := make([]T, 0, len(a)+len(b))
+	combined = append(combined, a...)
+	combined = append(combined, b...)
+	return Unique(combined)
 }
 
 // Contains returns true if the slice contains the value.
@@ -130,13 +140,17 @@ func LastIndex[T comparable](s []T, v T) int {
 	return -1
 }
 
-// Remove removes the first occurrence of v from the slice.
+// Remove returns a new slice with the first occurrence of v removed. The input
+// slice is not mutated. If v is absent the input is returned unchanged.
 func Remove[T comparable](s []T, v T) []T {
 	i := Index(s, v)
 	if i == -1 {
 		return s
 	}
-	return append(s[:i], s[i+1:]...)
+	out := make([]T, 0, len(s)-1)
+	out = append(out, s[:i]...)
+	out = append(out, s[i+1:]...)
+	return out
 }
 
 // RemoveAll removes all occurrences of v from the slice.
@@ -150,27 +164,33 @@ func RemoveAll[T comparable](s []T, v T) []T {
 	return result
 }
 
-// RemoveAt removes the element at the given index.
-// Returns nil if index is out of bounds.
+// RemoveAt returns a new slice with the element at index i removed. The input
+// slice is not mutated. If i is out of range the input is returned unchanged.
 func RemoveAt[T any](s []T, i int) []T {
 	if i < 0 || i >= len(s) {
 		return s
 	}
-	return append(s[:i], s[i+1:]...)
+	out := make([]T, 0, len(s)-1)
+	out = append(out, s[:i]...)
+	out = append(out, s[i+1:]...)
+	return out
 }
 
-// Insert inserts the value at the given index.
-// If index is out of bounds, appends to the end.
+// Insert returns a new slice with v placed at index i. The input slice is not
+// mutated. A negative index inserts at the front; an index >= len(s) appends.
 func Insert[T any](s []T, i int, v T) []T {
 	if i < 0 {
 		i = 0
 	}
+	out := make([]T, 0, len(s)+1)
 	if i >= len(s) {
-		return append(s, v)
+		out = append(out, s...)
+		return append(out, v)
 	}
-	s = append(s[:i+1], s[i:]...)
-	s[i] = v
-	return s
+	out = append(out, s[:i]...)
+	out = append(out, v)
+	out = append(out, s[i:]...)
+	return out
 }
 
 // Reverse reverses the slice in place.

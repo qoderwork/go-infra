@@ -6,7 +6,7 @@ import "sync"
 type ThreadSafeLRU struct {
 	cache     *LRU
 	mu        sync.RWMutex
-	onEvicted func(key Key, value interface{})
+	onEvicted func(key Key, value any)
 	// evicted collects entries evicted by the inner LRU while the lock is held.
 	// The real callback is fired after the lock is released (see fireEvicted).
 	evicted []entry
@@ -21,7 +21,7 @@ func NewThreadSafeLRU(maxEntries int) *ThreadSafeLRU {
 
 // NewThreadSafeLRUWithEviction creates a new thread-safe LRU cache with an eviction callback.
 // The callback is invoked outside the lock, so it is safe to call back into the cache.
-func NewThreadSafeLRUWithEviction(maxEntries int, onEvicted func(key Key, value interface{})) *ThreadSafeLRU {
+func NewThreadSafeLRUWithEviction(maxEntries int, onEvicted func(key Key, value any)) *ThreadSafeLRU {
 	c := NewThreadSafeLRU(maxEntries)
 	c.onEvicted = onEvicted
 	c.cache.OnEvicted = c.collectEvicted
@@ -32,7 +32,7 @@ func NewThreadSafeLRUWithEviction(maxEntries int, onEvicted func(key Key, value 
 // c.mu is held (during the inner LRU's operations), so it only records the pending
 // evictions; the real callback is invoked after the lock is released to avoid a
 // deadlock when the callback re-enters the cache.
-func (c *ThreadSafeLRU) collectEvicted(key Key, value interface{}) {
+func (c *ThreadSafeLRU) collectEvicted(key Key, value any) {
 	c.evicted = append(c.evicted, entry{key: key, value: value})
 }
 
@@ -56,7 +56,7 @@ func (c *ThreadSafeLRU) fireEvicted(evicted []entry) {
 }
 
 // Add adds a value to the cache.
-func (c *ThreadSafeLRU) Add(key Key, value interface{}) {
+func (c *ThreadSafeLRU) Add(key Key, value any) {
 	c.mu.Lock()
 	c.cache.Add(key, value)
 	evicted := c.takeEvicted()
@@ -64,11 +64,22 @@ func (c *ThreadSafeLRU) Add(key Key, value interface{}) {
 	c.fireEvicted(evicted)
 }
 
-// Get looks up a key's value from the cache.
-func (c *ThreadSafeLRU) Get(key Key) (value interface{}, ok bool) {
+// Get looks up a key's value and marks it as most recently used. It must take
+// the write lock because reordering mutates the list. Use Peek for a lookup
+// that does not touch recency and can run under a read lock.
+func (c *ThreadSafeLRU) Get(key Key) (value any, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.cache.Get(key)
+}
+
+// Peek returns a key's value without updating its recency order. Because it
+// mutates nothing, it takes only a read lock, so concurrent Peeks scale where
+// concurrent Gets serialize on the write lock.
+func (c *ThreadSafeLRU) Peek(key Key) (value any, ok bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.cache.Peek(key)
 }
 
 // Remove removes the provided key from the cache.

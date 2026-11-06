@@ -33,10 +33,10 @@ func NewTTLCache(ttl time.Duration) *TTLCache {
 	}
 }
 
-// Close 停止后台清理协程并释放缓存。NewTTLCache 会在构造时启动一个常驻
-// goroutine，调用方必须在不再使用时调用 Close（或直接用 TTLMap.Dispose），
-// 否则按请求/按对象创建缓存会永久泄漏 goroutine 与内存。
-// Close 之后不应再读写该缓存。
+// Close 停止后台清理协程（若有）并释放缓存。NewTTLCache 默认不再启动常驻
+// goroutine，过期项在读取时惰性删除；因此普通用法下 Close 只是清空数据、
+// 阻止后续读写。若曾调用 SetTickerCleanup/SwichFixedTimeClear 开启主动清理，
+// Close 会同时停掉该协程。Close 之后不应再读写该缓存。
 func (t *TTLCache) Close() {
 	t.TTLMap.Dispose()
 }
@@ -93,11 +93,13 @@ func assignByReflect(src any, dest any) error {
 	return json.Unmarshal(data, dest)
 }
 
-// SetNX 仅当键不存在时设置值
+// SetNX 仅当键不存在（且未过期）时设置值。
+// 先用 Load 惰性清除可能存在的过期项（过期视同不存在），再用 LoadOrStore 原子
+// 落子：并发下只有一个写入者成功，避免旧实现 Load+Store 两步都判“不存在”后互相
+// 覆盖。仍在“已过期但未被清理”的边界上保留一次额外判断，属该双表设计的固有取舍。
 func (t *TTLCache) SetNX(_ context.Context, key string, value any) {
-	// 检查键是否已存在（未过期）
-	// 注意：不能使用 LoadOrStore，因为它会更新过期时间
-	if _, exists := t.TTLMap.Load(key); !exists {
-		t.TTLMap.Store(key, value, t.ttl)
+	if _, exists := t.TTLMap.Load(key); exists {
+		return // present and not expired: do nothing
 	}
+	_, _ = t.TTLMap.LoadOrStore(key, value, t.ttl)
 }

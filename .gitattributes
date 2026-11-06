@@ -1,0 +1,18 @@
+# Normalize every text file to LF in both the index and the working tree.
+# `eol=lf` overrides a developer's global core.autocrlf=true, which otherwise
+# makes `git status` report phantom modifications on otherwise untouched files.
+* text=auto eol=lf
+
+*.go    text eol=lf
+*.mod   text eol=lf
+*.sum   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.md    text eol=lf
+*.sh    text eol=lf
+Makefile text eol=lf
+
+# Binaries / artifacts must never be rewritten.
+*.exe binary
+*.dll binary
+*.lic binary

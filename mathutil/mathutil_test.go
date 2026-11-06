@@ -71,15 +71,15 @@ func TestClosestPowerOfTwo(t *testing.T) {
 	tests := []struct {
 		n, want int
 	}{
-		{1, 1},    // 1 is closer to 1 (2^0) than 2 (2^1)
-		{2, 2},    // 2 is a power of two
-		{3, 4},    // 3-2=1, 4-3=1 → equidistant, picks larger (4)
-		{4, 4},    // 4 is a power of two
-		{5, 4},    // 5-4=1, 8-5=3 → 4
-		{6, 8},    // 6-4=2, 8-6=2 → equidistant, picks larger (8)
-		{10, 8},   // 10-8=2, 16-10=6 → 8
-		{12, 16},  // 12-8=4, 16-12=4 → equidistant, picks larger (16)
-		{14, 16},  // 14-8=6, 16-14=2 → 16
+		{1, 1},   // 1 is closer to 1 (2^0) than 2 (2^1)
+		{2, 2},   // 2 is a power of two
+		{3, 4},   // 3-2=1, 4-3=1 → equidistant, picks larger (4)
+		{4, 4},   // 4 is a power of two
+		{5, 4},   // 5-4=1, 8-5=3 → 4
+		{6, 8},   // 6-4=2, 8-6=2 → equidistant, picks larger (8)
+		{10, 8},  // 10-8=2, 16-10=6 → 8
+		{12, 16}, // 12-8=4, 16-12=4 → equidistant, picks larger (16)
+		{14, 16}, // 14-8=6, 16-14=2 → 16
 	}
 	for _, tt := range tests {
 		if got := ClosestPowerOfTwo(tt.n); got != tt.want {

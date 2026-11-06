@@ -130,9 +130,9 @@ func TestReverse(t *testing.T) {
 
 func TestTruncate(t *testing.T) {
 	tests := []struct {
-		in      string
-		length  int
-		want    string
+		in     string
+		length int
+		want   string
 	}{
 		{"Hello World", 5, "Hello..."},
 		{"Hello", 10, "Hello"},

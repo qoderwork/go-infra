@@ -40,7 +40,10 @@ func (h *WaitGroup) Go(f func()) {
 func (h *WaitGroup) Wait() {
 	h.wg.Wait()
 
-	// Propagate a panic if we caught one from a child goroutine.
+	// Propagate a panic if we caught one from a child goroutine. The Catcher is
+	// intentionally persistent: like sync.WaitGroup, Wait may be called by more
+	// than one goroutine, and every Waiter must see the panic. Pools that need
+	// to be reused clear it explicitly via Pool.Wait's reset().
 	h.pc.Repanic()
 }
 
@@ -49,7 +52,9 @@ func (h *WaitGroup) Wait() {
 func (h *WaitGroup) WaitAndRecover() *Recovered {
 	h.wg.Wait()
 
-	// Return a recovered panic if we caught one from a child goroutine.
+	// Return a recovered panic if we caught one from a child goroutine. As with
+	// Wait, the Catcher stays persistent so concurrent Waiters all see it; the
+	// returned *Recovered remains valid after any later Pool-level reset.
 	return h.pc.Recovered()
 }
 

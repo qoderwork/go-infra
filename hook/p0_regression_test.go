@@ -32,8 +32,10 @@ func countCleanupGoroutines() int {
 	return strings.Count(string(buf[:n]), ".tickerCleanup(")
 }
 
-// TestUseTTLCacheDoesNotStartCleanupGoroutine: the helper used to call
-// conc.NewTTLMap per invocation, leaking one goroutine per cache forever.
+// TestUseTTLCacheDoesNotStartCleanupGoroutine: the helper must stay lazy.
+// TTLMap no longer spawns a cleanup goroutine by default, but the helper must
+// not opt into SetTickerCleanup on the caller's behalf either, since the cache
+// hidden behind the closure has no reachable Dispose.
 func TestUseTTLCacheDoesNotStartCleanupGoroutine(t *testing.T) {
 	base := countCleanupGoroutines()
 	for i := 0; i < 20; i++ {

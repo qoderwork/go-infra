@@ -331,7 +331,7 @@ func TestPeekWrapAround(t *testing.T) {
 	rb := New(8)
 	rb.Write([]byte("12345678"))
 	buf := make([]byte, 4)
-	rb.Read(buf) // read "1234", now r=4, w=0, isEmpty=false
+	rb.Read(buf)           // read "1234", now r=4, w=0, isEmpty=false
 	rb.Write([]byte("ab")) // write "ab", now w=2
 
 	head, tail := rb.Peek(6)
@@ -436,7 +436,7 @@ func TestWriteToWrapAround(t *testing.T) {
 	rb := New(16)
 	rb.Write([]byte("0123456789abcdef"))
 	buf := make([]byte, 10)
-	rb.Read(buf) // r = 10
+	rb.Read(buf)            // r = 10
 	rb.Write([]byte("XYZ")) // write some to wrap
 
 	var out bytes.Buffer
@@ -515,7 +515,7 @@ func TestWriteToShortWrite(t *testing.T) {
 }
 
 type shortWriter struct {
-	limit int
+	limit   int
 	written int
 }
 
@@ -524,7 +524,7 @@ func (w *shortWriter) Write(p []byte) (int, error) {
 		return 0, io.ErrShortWrite
 	}
 	n := len(p)
-	if w.written + n > w.limit {
+	if w.written+n > w.limit {
 		n = w.limit - w.written
 	}
 	w.written += n
@@ -532,8 +532,8 @@ func (w *shortWriter) Write(p []byte) (int, error) {
 }
 
 func TestGrowLargeBuffer(t *testing.T) {
-	rb := New(8 * 1024) // start above 4KB threshold
-	data := make([]byte, 32 * 1024) // grow beyond double
+	rb := New(8 * 1024)           // start above 4KB threshold
+	data := make([]byte, 32*1024) // grow beyond double
 	n, err := rb.Write(data)
 	if err != nil {
 		t.Fatalf("Write error: %v", err)
@@ -550,7 +550,7 @@ func TestPeekAllWrap(t *testing.T) {
 	rb := New(8)
 	rb.Write([]byte("12345678"))
 	buf := make([]byte, 3)
-	rb.Read(buf) // read "123"
+	rb.Read(buf)           // read "123"
 	rb.Write([]byte("ab")) // write "ab", wraps
 
 	head, tail := rb.Peek(0) // peek all
@@ -566,7 +566,7 @@ func TestReadFromMidWrap(t *testing.T) {
 	rb := New(16)
 	rb.Write([]byte("0123456789abcdef"))
 	buf := make([]byte, 12)
-	rb.Read(buf) // r = 12
+	rb.Read(buf)           // r = 12
 	rb.Write([]byte("XY")) // w = 2, wrapped
 
 	// Now ReadFrom: w=2, r=12, so w < r, middle space is buf[2:12]
@@ -585,7 +585,7 @@ func TestWriteToWrapShortWrite(t *testing.T) {
 	rb := New(16)
 	rb.Write([]byte("0123456789abcdef"))
 	buf := make([]byte, 10)
-	rb.Read(buf) // r = 10
+	rb.Read(buf)            // r = 10
 	rb.Write([]byte("XYZ")) // w = 3, wrapped, data is "abcdefXYZ"
 
 	w := &shortWriter{limit: 7} // only write 7 of 9 bytes, first segment is "abcdef" (6 bytes)

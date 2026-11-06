@@ -38,14 +38,14 @@ func UseCache[K comparable, V any](fn func(K) (V, error)) CacheFn[K, V] {
 
 // UseTTLCache 使用内存缓存一些临时数据，指定时间超时自动清理。
 //
-// 这里使用零值 conc.TTLMap，不启动后台清理 goroutine：过期项在该 key
-// 被再次读取时由 Load 惰性删除。这样按请求或按业务对象创建缓存时不会
-// 永久泄漏 goroutine。代价是长期不再访问的过期项会一直占内存，直到闭包
-// 本身被回收。
+// conc.TTLMap 默认不启动后台清理协程：过期项在该 key 被再次读取时由 Load
+// 惰性删除，因此按请求或按业务对象创建缓存不会泄漏 goroutine。代价是长期
+// 不再访问的过期项会一直占内存，直到闭包本身被回收。
 //
-// 若需要后台主动清理，请显式使用 conc.NewTTLMap 并在结束时调用 Dispose。
+// 若确实需要后台主动清理，请自行持有 conc.NewTTLMap，显式调用
+// SetTickerCleanup 或 SwichFixedTimeClear 开启，并在结束时调用 Dispose。
 func UseTTLCache[K comparable, V any](timeline time.Duration, fn func(K) (V, error)) CacheFn[K, V] {
-	cache := &conc.TTLMap[K, V]{} // zero value: no cleanup goroutine
+	cache := &conc.TTLMap[K, V]{} // no background cleanup goroutine
 	return func(key K) (V, bool, error) {
 		v, ok := cache.Load(key)
 		if ok {

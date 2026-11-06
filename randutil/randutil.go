@@ -3,6 +3,8 @@ package randutil
 
 import (
 	cryptorand "crypto/rand"
+	"errors"
+	"math/big"
 	"math/rand"
 	"sync"
 )
@@ -33,9 +35,10 @@ func init() {
 }
 
 // String returns a random string of length n using characters from charset.
-// Uses math/rand (non-cryptographic, fast).
+// Uses math/rand (non-cryptographic, fast). An empty charset yields the empty
+// string rather than panicking on a zero-width index.
 func String(n int, charset string) string {
-	if n <= 0 {
+	if n <= 0 || charset == "" {
 		return ""
 	}
 	b := make([]byte, n)
@@ -47,23 +50,32 @@ func String(n int, charset string) string {
 	return string(b)
 }
 
-// CryptoString returns a random string of length n using characters from charset.
-// Uses crypto/rand (cryptographically secure, slower).
+// CryptoString returns a random string of length n using characters from
+// charset. Uses crypto/rand (cryptographically secure, slower).
+//
+// Each character is drawn with crypto/rand.Int over [0, len(charset)), which is
+// rejection-sampled and therefore unbiased. The previous `byte % len` mapping
+// skewed the distribution whenever the charset length was not a power of two
+// (e.g. 26 letters, 62 alphanumerics), weakening the "secure" guarantee. An
+// empty charset is rejected with an error instead of dividing by zero.
 func CryptoString(n int, charset string) (string, error) {
 	if n <= 0 {
 		return "", nil
 	}
-	b := make([]byte, n)
+	if charset == "" {
+		return "", errors.New("randutil: CryptoString requires a non-empty charset")
+	}
 	chars := []byte(charset)
-	// Use ReadFull to avoid partial reads.
-	if _, err := cryptorand.Read(b); err != nil {
-		return "", err
+	limit := big.NewInt(int64(len(chars)))
+	out := make([]byte, n)
+	for i := range out {
+		idx, err := cryptorand.Int(cryptorand.Reader, limit)
+		if err != nil {
+			return "", err
+		}
+		out[i] = chars[idx.Int64()]
 	}
-	// Map random bytes to charset.
-	for i := range b {
-		b[i] = chars[int(b[i])%len(chars)]
-	}
-	return string(b), nil
+	return string(out), nil
 }
 
 // Alpha returns a random lowercase alphabetic string of length n.

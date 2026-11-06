@@ -9,7 +9,7 @@ type Key interface{}
 // entry is a cache entry.
 type entry struct {
 	key   Key
-	value interface{}
+	value any
 }
 
 // LRU is an LRU cache. It is not safe for concurrent access.
@@ -21,10 +21,10 @@ type LRU struct {
 
 	// OnEvicted optionally specifies a callback function to be
 	// executed when an entry is purged from the cache.
-	OnEvicted func(key Key, value interface{})
+	OnEvicted func(key Key, value any)
 
 	ll    *list.List
-	cache map[interface{}]*list.Element
+	cache map[any]*list.Element
 }
 
 // NewLRU creates a new LRU cache.
@@ -34,14 +34,14 @@ func NewLRU(maxEntries int) *LRU {
 	return &LRU{
 		MaxEntries: maxEntries,
 		ll:         list.New(),
-		cache:      make(map[interface{}]*list.Element),
+		cache:      make(map[any]*list.Element),
 	}
 }
 
 // Add adds a value to the cache.
-func (c *LRU) Add(key Key, value interface{}) {
+func (c *LRU) Add(key Key, value any) {
 	if c.cache == nil {
-		c.cache = make(map[interface{}]*list.Element)
+		c.cache = make(map[any]*list.Element)
 		c.ll = list.New()
 	}
 	if ee, ok := c.cache[key]; ok {
@@ -56,13 +56,26 @@ func (c *LRU) Add(key Key, value interface{}) {
 	}
 }
 
-// Get looks up a key's value from the cache.
-func (c *LRU) Get(key Key) (value interface{}, ok bool) {
+// Get looks up a key's value from the cache, marking it as most recently used.
+func (c *LRU) Get(key Key) (value any, ok bool) {
 	if c.cache == nil {
 		return
 	}
 	if ele, hit := c.cache[key]; hit {
 		c.ll.MoveToFront(ele)
+		return ele.Value.(*entry).value, true
+	}
+	return
+}
+
+// Peek returns a key's value WITHOUT changing its recency order. Unlike Get it
+// mutates nothing, so a concurrent wrapper can guard it with a read lock rather
+// than a write lock. Use Peek for a non-intrusive lookup.
+func (c *LRU) Peek(key Key) (value any, ok bool) {
+	if c.cache == nil {
+		return
+	}
+	if ele, hit := c.cache[key]; hit {
 		return ele.Value.(*entry).value, true
 	}
 	return

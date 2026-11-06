@@ -30,10 +30,10 @@ func DefaultRetryConfig() RetryConfig {
 }
 
 // Retry calls fn until it succeeds, the attempts are exhausted, or ctx is
-// canceled. Delays grow exponentially (BaseDelay, 2x, 4x, ...) with up to 20%
-// positive jitter and are capped at MaxDelay. Success returns nil; exhaustion
-// returns an error wrapping the last error (inspectable with errors.Is/As);
-// cancellation returns ctx.Err().
+// canceled. Delays grow exponentially (BaseDelay, 2x, 4x, ...) with +/-10%
+// symmetric jitter and are clamped so the result never exceeds MaxDelay.
+// Success returns nil; exhaustion returns an error wrapping the last error
+// (inspectable with errors.Is/As); cancellation returns ctx.Err().
 //
 // fn must respect ctx, otherwise cancellation cannot interrupt a running call.
 func Retry(ctx context.Context, cfg RetryConfig, fn func(context.Context) error) error {
@@ -71,15 +71,7 @@ func Retry(ctx context.Context, cfg RetryConfig, fn func(context.Context) error)
 }
 
 func waitBackoff(ctx context.Context, cfg RetryConfig, attempt int) error {
-	delay := cfg.BaseDelay
-	// Cap the shift before multiplying so large attempt counts cannot overflow.
-	for i := 0; i < attempt && delay < cfg.MaxDelay; i++ {
-		delay *= 2
-	}
-	if delay > cfg.MaxDelay || delay <= 0 {
-		delay = cfg.MaxDelay
-	}
-	delay += time.Duration(float64(delay) * 0.2 * rand.Float64())
+	delay := backoffDelay(cfg, attempt)
 
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
@@ -89,4 +81,30 @@ func waitBackoff(ctx context.Context, cfg RetryConfig, attempt int) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+// backoffDelay computes the sleep before the attempt-th retry (0-based). The
+// delay doubles from BaseDelay, is capped at MaxDelay, then jittered by +/-10%
+// and re-clamped so the result never exceeds MaxDelay. Symmetric jitter is
+// required: a one-sided positive jitter would always be clamped away once the
+// base delay reaches MaxDelay, making every retry fire at exactly the same
+// instant (thundering herd). Extracted from waitBackoff so the ceiling is
+// unit-testable without timing the sleep.
+func backoffDelay(cfg RetryConfig, attempt int) time.Duration {
+	delay := cfg.BaseDelay
+	// Cap the shift before multiplying so large attempt counts cannot overflow.
+	for i := 0; i < attempt && delay < cfg.MaxDelay; i++ {
+		delay *= 2
+	}
+	if delay > cfg.MaxDelay || delay <= 0 {
+		delay = cfg.MaxDelay
+	}
+	delay += time.Duration(float64(delay) * (0.2*rand.Float64() - 0.1))
+	if delay > cfg.MaxDelay {
+		delay = cfg.MaxDelay
+	}
+	if delay <= 0 {
+		delay = cfg.BaseDelay
+	}
+	return delay
 }

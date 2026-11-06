@@ -2,6 +2,7 @@ package conc
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 )
 
@@ -11,16 +12,18 @@ type TTLMap[K comparable, V any] struct {
 	exp  Map[K, time.Time]
 
 	cancel context.CancelFunc
+	// closed is set by Dispose. Reads/writes become no-ops afterwards so a
+	// disposed map cannot be silently revived while its cleanup is gone.
+	closed atomic.Bool
 }
 
-// NewTTLMap 提供默认的过期删除
-// 也可以使用 SwichFixedTimeCleanup 开启定时清空
+// NewTTLMap 创建一个 TTLMap。默认不启动后台清理协程：过期项在 Load 时惰性
+// 删除。需要主动定时清理时，再调用 SetTickerCleanup 或 SwichFixedTimeClear，
+// 并在结束时调用 Dispose 释放其协程。这样按请求/按对象创建缓存不会泄漏
+// goroutine（构造即启动常驻协程的旧行为已移除）。
+// 零值 TTLMap 亦可直接使用。
 func NewTTLMap[K comparable, V any]() *TTLMap[K, V] {
-	c := TTLMap[K, V]{}
-	ctx, cancel := context.WithCancel(context.Background())
-	c.cancel = cancel
-	go c.tickerCleanup(ctx, 0)
-	return &c
+	return &TTLMap[K, V]{}
 }
 
 // SwichFixedTimeClear 固定时间清除全部数据
@@ -84,15 +87,21 @@ func (c *TTLMap[K, V]) tickerCleanup(ctx context.Context, interval time.Duration
 	}
 }
 
-// Store 将在 ttl 后自动删除 k/v
+// Store 将在 ttl 后自动删除 k/v。Dispose 之后调用为无操作。
 func (c *TTLMap[K, V]) Store(key K, value V, ttl time.Duration) {
+	if c.closed.Load() {
+		return
+	}
 	c.data.Store(key, value)
 	c.exp.Store(key, time.Now().Add(ttl))
 }
 
-// Load 获取未过期的 k/v
+// Load 获取未过期的 k/v。Dispose 之后一律返回未命中。
 func (c *TTLMap[K, V]) Load(key K) (V, bool) {
 	var v V
+	if c.closed.Load() {
+		return v, false
+	}
 	expAt, ok := c.exp.Load(key)
 	if !ok {
 		return v, false
@@ -105,8 +114,13 @@ func (c *TTLMap[K, V]) Load(key K) (V, bool) {
 	return c.data.Load(key)
 }
 
-// LoadOrStore 第二个参数，true:获取 load 的数据; false:刚存储的数据
+// LoadOrStore 第二个参数，true:获取 load 的数据; false:刚存储的数据。
+// Dispose 之后一律返回 (零值, false) 且不写入。
 func (c *TTLMap[K, V]) LoadOrStore(key K, value V, ttl time.Duration) (V, bool) {
+	if c.closed.Load() {
+		var zero V
+		return zero, false
+	}
 	actual, loaded := c.data.LoadOrStore(key, value)
 	if !loaded {
 		// Write the value before its expiry: Load() checks exp first, so the
@@ -139,8 +153,9 @@ func (c *TTLMap[K, V]) Clear() {
 	c.exp.Clear()
 }
 
-// Dispose 销毁协程
+// Dispose 停止后台清理协程并清空数据，随后读写均为无操作。幂等。
 func (c *TTLMap[K, V]) Dispose() {
+	c.closed.Store(true)
 	c.Clear()
 	if c.cancel != nil {
 		c.cancel()

@@ -2,6 +2,10 @@ package executil
 
 import (
 	"context"
+	"errors"
+	"os/exec"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/qoderwork/go-infra/assert"
@@ -26,4 +30,22 @@ func TestExecCommandRespectsContextCancel(t *testing.T) {
 	_, err := ExecCommand(ctx, []string{"echo", "should-not-run"})
 	assert.Error(t, err, "canceled context must abort the command")
 	assert.ErrorIs(t, err, context.Canceled)
+}
+
+// TestExecCommandFailureNotSwallowed verifies a command that writes output AND
+// exits non-zero still reports an error on both platforms. The Windows build
+// used to clear the error whenever output was present, silently turning real
+// failures into successes.
+func TestExecCommandFailureNotSwallowed(t *testing.T) {
+	var args []string
+	if runtime.GOOS == "windows" {
+		args = []string{"echo", "boom", "&&", "exit", "/b", "3"}
+	} else {
+		args = []string{"echo", "boom; exit 3"} // sh -c "echo boom; exit 3"
+	}
+	out, err := ExecCommand(context.Background(), args)
+	assert.Error(t, err, "non-zero exit with output must return an error")
+	var ee *exec.ExitError
+	assert.True(t, errors.As(err, &ee), "error should be an *exec.ExitError")
+	assert.True(t, strings.Contains(string(out), "boom"), "stdout should still be captured, got %q", string(out))
 }

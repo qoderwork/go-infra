@@ -28,27 +28,45 @@ func waitForCleanupGoroutines(t *testing.T, want int) {
 	}
 }
 
-func TestTTLCacheCloseReleasesCleanupGoroutine(t *testing.T) {
+// waitForAtLeastOneCleanup avoids asserting an exact goroutine count: they
+// start asynchronously and other packages run in parallel under `go test ./...`.
+func waitForAtLeastOneCleanup(t *testing.T, base int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for countCleanupGoroutines() <= base && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if countCleanupGoroutines() <= base {
+		t.Fatal("SetTickerCleanup did not start a cleanup goroutine")
+	}
+}
+
+// TestTTLCacheCloseStopsTickerCleanup: TTLMap no longer starts a cleanup
+// goroutine at construction, so opt in explicitly and verify Close() releases
+// the one it started.
+func TestTTLCacheCloseStopsTickerCleanup(t *testing.T) {
 	base := countCleanupGoroutines()
 	caches := make([]*TTLCache, 20)
 	for i := range caches {
 		caches[i] = NewTTLCache(time.Minute)
+		caches[i].TTLMap.SetTickerCleanup(time.Hour)
 	}
-	// Goroutines start asynchronously, so do not assert how many have been
-	// scheduled at this point. The contract under test is that Close()
-	// releases every one of them.
+	waitForAtLeastOneCleanup(t, base)
 	for _, c := range caches {
 		c.Close()
 	}
 	waitForCleanupGoroutines(t, base)
 }
 
-func TestTTLMapDisposeReleasesCleanupGoroutine(t *testing.T) {
+// TestTTLMapDisposeStopsTickerCleanup mirrors the above for TTLMap.Dispose.
+func TestTTLMapDisposeStopsTickerCleanup(t *testing.T) {
 	base := countCleanupGoroutines()
 	maps := make([]*TTLMap[string, int], 20)
 	for i := range maps {
 		maps[i] = NewTTLMap[string, int]()
+		maps[i].SetTickerCleanup(time.Hour)
 	}
+	waitForAtLeastOneCleanup(t, base)
 	for _, m := range maps {
 		m.Dispose()
 	}
